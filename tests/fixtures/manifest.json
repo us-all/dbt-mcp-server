@@ -1,0 +1,135 @@
+{
+  "metadata": {
+    "dbt_schema_version": "https://schemas.getdbt.com/dbt/manifest/v12.json",
+    "dbt_version": "1.11.7",
+    "generated_at": "2026-05-06T12:00:00.000000Z",
+    "project_name": "us_dbt",
+    "adapter_type": "bigquery"
+  },
+  "nodes": {
+    "model.us_dbt.users_dim": {
+      "unique_id": "model.us_dbt.users_dim",
+      "name": "users_dim",
+      "resource_type": "model",
+      "package_name": "us_dbt",
+      "path": "marts/users_dim.sql",
+      "original_file_path": "models/marts/users_dim.sql",
+      "schema": "us_summary",
+      "database": "example-project",
+      "alias": "users_dim",
+      "config": { "materialized": "table", "tags": ["tier1", "user"] },
+      "description": "User dimension with stable user_id and historical attributes.",
+      "columns": {
+        "user_id": { "name": "user_id", "data_type": "STRING", "description": "Stable user UUID" },
+        "email": { "name": "email", "data_type": "STRING", "description": "Email" },
+        "created_at": { "name": "created_at", "data_type": "TIMESTAMP" }
+      },
+      "refs": [{ "name": "stg_users" }],
+      "sources": [["raw", "users"]],
+      "depends_on": { "nodes": ["model.us_dbt.stg_users", "source.us_dbt.raw.users"], "macros": [] },
+      "tags": ["tier1", "user"],
+      "raw_code": "select * from {{ ref('stg_users') }}"
+    },
+    "model.us_dbt.stg_users": {
+      "unique_id": "model.us_dbt.stg_users",
+      "name": "stg_users",
+      "resource_type": "model",
+      "package_name": "us_dbt",
+      "original_file_path": "models/staging/stg_users.sql",
+      "schema": "us_staging",
+      "database": "example-project",
+      "config": { "materialized": "view", "tags": ["staging"] },
+      "columns": {
+        "user_id": { "name": "user_id" },
+        "email": { "name": "email" }
+      },
+      "refs": [],
+      "sources": [["raw", "users"]],
+      "depends_on": { "nodes": ["source.us_dbt.raw.users"], "macros": [] },
+      "tags": ["staging"]
+    },
+    "test.us_dbt.unique_users_dim_user_id.abc123": {
+      "unique_id": "test.us_dbt.unique_users_dim_user_id.abc123",
+      "name": "unique_users_dim_user_id",
+      "resource_type": "test",
+      "package_name": "us_dbt",
+      "column_name": "user_id",
+      "test_metadata": { "name": "unique", "kwargs": { "column_name": "user_id" } },
+      "depends_on": { "nodes": ["model.us_dbt.users_dim"], "macros": [] },
+      "severity": "ERROR",
+      "raw_code": "{{ test_unique(**_dbt_generic_test_kwargs) }}"
+    },
+    "test.us_dbt.not_null_users_dim_email.def456": {
+      "unique_id": "test.us_dbt.not_null_users_dim_email.def456",
+      "name": "not_null_users_dim_email",
+      "resource_type": "test",
+      "package_name": "us_dbt",
+      "column_name": "email",
+      "test_metadata": { "name": "not_null", "kwargs": { "column_name": "email" } },
+      "depends_on": { "nodes": ["model.us_dbt.users_dim"], "macros": [] },
+      "severity": "WARN"
+    },
+    "test.us_dbt.row_count_check_users_dim.ghi789": {
+      "unique_id": "test.us_dbt.row_count_check_users_dim.ghi789",
+      "name": "row_count_check_users_dim",
+      "resource_type": "test",
+      "package_name": "us_dbt",
+      "depends_on": { "nodes": ["model.us_dbt.users_dim"], "macros": [] },
+      "severity": "ERROR",
+      "raw_code": "select count(*) from {{ ref('users_dim') }} having count(*) < 1"
+    }
+  },
+  "sources": {
+    "source.us_dbt.raw.users": {
+      "unique_id": "source.us_dbt.raw.users",
+      "name": "users",
+      "source_name": "raw",
+      "resource_type": "source",
+      "package_name": "us_dbt",
+      "schema": "raw",
+      "database": "example-project",
+      "loader": "fivetran",
+      "loaded_at_field": "_loaded_at",
+      "freshness": {
+        "warn_after": { "count": 12, "period": "hour" },
+        "error_after": { "count": 24, "period": "hour" }
+      },
+      "columns": {
+        "user_id": { "name": "user_id", "description": "raw user id" }
+      }
+    }
+  },
+  "macros": {
+    "macro.us_dbt.audit_columns": {
+      "unique_id": "macro.us_dbt.audit_columns",
+      "name": "audit_columns",
+      "resource_type": "macro",
+      "package_name": "us_dbt",
+      "original_file_path": "macros/audit_columns.sql",
+      "arguments": [{ "name": "model_name", "type": "string" }],
+      "description": "Adds standard audit columns",
+      "raw_code": "{% macro audit_columns(model_name) %}...{% endmacro %}"
+    }
+  },
+  "exposures": {
+    "exposure.us_dbt.weekly_kpi": {
+      "unique_id": "exposure.us_dbt.weekly_kpi",
+      "name": "weekly_kpi",
+      "resource_type": "exposure",
+      "package_name": "us_dbt",
+      "exposure_type": "dashboard",
+      "owner": { "name": "Analytics Team", "email": "analytics@us-all.co.kr" },
+      "description": "Weekly KPI dashboard",
+      "depends_on": { "nodes": ["model.us_dbt.users_dim"] }
+    }
+  },
+  "parent_map": {
+    "model.us_dbt.users_dim": ["model.us_dbt.stg_users", "source.us_dbt.raw.users"],
+    "model.us_dbt.stg_users": ["source.us_dbt.raw.users"]
+  },
+  "child_map": {
+    "model.us_dbt.users_dim": ["test.us_dbt.unique_users_dim_user_id.abc123", "test.us_dbt.not_null_users_dim_email.def456", "test.us_dbt.row_count_check_users_dim.ghi789", "exposure.us_dbt.weekly_kpi"],
+    "model.us_dbt.stg_users": ["model.us_dbt.users_dim"],
+    "source.us_dbt.raw.users": ["model.us_dbt.stg_users", "model.us_dbt.users_dim"]
+  }
+}

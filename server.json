@@ -1,0 +1,73 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.us-all/dbt",
+  "description": "dbt MCP — manifest/run_results/sources/catalog parsing + DQ result tables (BigQuery/Postgres)",
+  "repository": {
+    "url": "https://github.com/us-all/dbt-mcp-server",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@us-all/dbt-mcp",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "DBT_PROJECT_DIR",
+          "description": "Path to dbt project root (where dbt_project.yml lives).",
+          "isRequired": true
+        },
+        {
+          "name": "DBT_TARGET_DIR",
+          "description": "dbt target dir for manifest.json/run_results.json (default: $DBT_PROJECT_DIR/target)."
+        },
+        {
+          "name": "DBT_RUN_HISTORY_DIR",
+          "description": "Optional dir for archived run_results.json history (glob-scanned)."
+        },
+        {
+          "name": "DQ_BACKEND",
+          "description": "DQ result table backend: 'bigquery' (default) or 'postgres'."
+        },
+        {
+          "name": "DQ_RESULTS_TABLE",
+          "description": "Fully qualified DQ checks table, e.g. 'project.data_ops.quality_checks'."
+        },
+        {
+          "name": "DQ_SCORE_TABLE",
+          "description": "Fully qualified DQ score-daily table, e.g. 'project.data_ops.quality_score_daily'."
+        },
+        {
+          "name": "GOOGLE_APPLICATION_CREDENTIALS",
+          "description": "Service account key path for BigQuery (ADC fallback supported)."
+        },
+        {
+          "name": "BQ_PROJECT_ID",
+          "description": "Explicit BigQuery project ID for DQ queries."
+        },
+        {
+          "name": "PG_CONNECTION_STRING",
+          "description": "Postgres connection string when DQ_BACKEND=postgres.",
+          "isSecret": true
+        },
+        {
+          "name": "DBT_ALLOW_WRITE",
+          "description": "Reserved for future write tools. Default read-only.",
+          "default": "false"
+        },
+        {
+          "name": "DBT_TOOLS",
+          "description": "Comma-separated category allowlist (dbt,quality,meta)."
+        },
+        {
+          "name": "DBT_DISABLE",
+          "description": "Comma-separated category disablelist."
+        }
+      ]
+    }
+  ]
+}

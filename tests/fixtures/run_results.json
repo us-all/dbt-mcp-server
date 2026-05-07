@@ -1,0 +1,41 @@
+{
+  "metadata": {
+    "dbt_schema_version": "https://schemas.getdbt.com/dbt/run-results/v6.json",
+    "generated_at": "2026-05-06T03:00:00.000000Z",
+    "invocation_id": "inv-abc-001"
+  },
+  "elapsed_time": 132.4,
+  "results": [
+    {
+      "unique_id": "model.us_dbt.stg_users",
+      "status": "success",
+      "execution_time": 5.2,
+      "adapter_response": { "rows_affected": 0, "bytes_processed": 1024000 }
+    },
+    {
+      "unique_id": "model.us_dbt.users_dim",
+      "status": "success",
+      "execution_time": 92.1,
+      "adapter_response": { "rows_affected": 1500000, "bytes_processed": 524288000 }
+    },
+    {
+      "unique_id": "test.us_dbt.unique_users_dim_user_id.abc123",
+      "status": "pass",
+      "execution_time": 1.4,
+      "failures": 0
+    },
+    {
+      "unique_id": "test.us_dbt.not_null_users_dim_email.def456",
+      "status": "fail",
+      "execution_time": 1.1,
+      "failures": 17,
+      "message": "Got 17 results, configured to fail if != 0"
+    },
+    {
+      "unique_id": "test.us_dbt.row_count_check_users_dim.ghi789",
+      "status": "pass",
+      "execution_time": 0.6,
+      "failures": 0
+    }
+  ]
+}
