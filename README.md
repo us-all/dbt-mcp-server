@@ -74,12 +74,36 @@ Toggle with `DBT_TOOLS=dbt` (allowlist) or `DBT_DISABLE=quality` (denylist).
 | `GOOGLE_APPLICATION_CREDENTIALS` | no | For BigQuery backend (ADC fallback supported) |
 | `BQ_PROJECT_ID` | no | Explicit BQ project (otherwise inferred from ADC) |
 | `PG_CONNECTION_STRING` | no | When `DQ_BACKEND=postgres` (secret) |
+| `DQ_SCHEMA` | no | `generic` (default) or `us-all` — selects schema flavor for the `quality` category |
+| `DQ_TIER1_TARGET_PCT` | no | Tier 1 SLA threshold for `dq-tier-status` when `DQ_SCHEMA=us-all` (default 99.5) |
 | `DBT_ALLOW_WRITE` | no | Reserved for future write tools (none in v0.1) |
 | `DBT_TOOLS` / `DBT_DISABLE` | no | Category toggles |
 
-## DQ result-table assumed schema (v0.1)
+## DQ result-table schema flavors
 
-The `quality` category assumes columns `check_name`, `check_type`, `dataset`, `table_name`, `status`, `severity`, `failure_count`, `run_at`, `message` on `DQ_RESULTS_TABLE`, and `score_date`, `scope`, `tier`, `completeness_pct`, `freshness_pct`, `validity_pct`, `anomaly_free_pct`, `overall_score` on `DQ_SCORE_TABLE`. v0.2 will add a configurable column-mapping layer.
+The `quality` category supports two schema presets via `DQ_SCHEMA`:
+
+### `DQ_SCHEMA=generic` (default)
+
+Columns assumed on `DQ_RESULTS_TABLE`: `run_at`, `check_name`, `check_type`, `dataset`, `table_name`, `status`, `severity`, `failure_count`, `message`.
+
+Columns assumed on `DQ_SCORE_TABLE`: `score_date`, `scope`, `tier`, `completeness_pct`, `freshness_pct`, `validity_pct`, `anomaly_free_pct`, `overall_score`.
+
+`dq-tier-status` rolls up by Tier 1/2/3 against the per-`scope` rows.
+
+### `DQ_SCHEMA=us-all`
+
+Real schema used at us-all (Postgres `data_ops` database):
+
+`quality_checks`: `run_date`, `check_type`, `dimension`, `source`, `target_name`, `status`, `metric_value`, `threshold`, `details (JSONB)`.
+
+`quality_score_daily`: `run_date`, `completeness_pct`, `freshness_pct`, `validity_pct`, `anomaly_free_pct`, `overall_score`, `total_checks`, `failed_checks`.
+
+In this flavor `quality_score_daily` is one row per day (no per-scope rollup, no `tier` column). `dq-tier-status` falls back to comparing the day's `overall_score` against `DQ_TIER1_TARGET_PCT` (default 99.5).
+
+`dq-get-check-history` requires `checkName` formatted as `'<check_type>:<target_name>'` since us-all has no native `check_name` column.
+
+v0.2 will add per-column env vars (`DQ_COL_*`) for arbitrary schemas.
 
 ## Tested-against schemas
 

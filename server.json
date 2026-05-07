@@ -6,12 +6,12 @@
     "url": "https://github.com/us-all/dbt-mcp-server",
     "source": "github"
   },
-  "version": "0.1.0",
+  "version": "0.1.1",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@us-all/dbt-mcp",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "transport": {
         "type": "stdio"
       },
@@ -58,6 +58,15 @@
           "name": "DBT_ALLOW_WRITE",
           "description": "Reserved for future write tools. Default read-only.",
           "default": "false"
+        },
+        {
+          "name": "DQ_SCHEMA",
+          "description": "DQ result-table schema flavor: 'generic' (default) or 'us-all'.",
+          "default": "generic"
+        },
+        {
+          "name": "DQ_TIER1_TARGET_PCT",
+          "description": "When DQ_SCHEMA=us-all, the overall_score threshold dq-tier-status compares against (default 99.5)."
         },
         {
           "name": "DBT_TOOLS",
