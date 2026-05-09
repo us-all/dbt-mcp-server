@@ -128,29 +128,45 @@ export const dqTierBySourceSchema = z.object({
     .coerce.number().int().min(1).max(720)
     .optional()
     .describe("Alternative window: rollup over the last N hours instead of a single date"),
+  mode: z
+    .enum(["source", "table"])
+    .default("source")
+    .describe(
+      "How to roll up. 'source' (default) groups by the dataset/source column and looks up tier from each source group's first table-level meta.tier. 'table' groups by table_name (assumed format '<source_group>.<table>'), parses the prefix, and looks up the table-level meta.tier — useful when meta.tier varies per table inside a source group.",
+    ),
+  sourceFilter: z
+    .string()
+    .optional()
+    .describe(
+      "Optional pre-filter on the dataset/source column. Useful in mode='table' when only some source rows have target_name in '<source_group>.<table>' format (e.g. sourceFilter='bq' to keep only the BigQuery-shaped rows).",
+    ),
 });
 
 export async function dqTierBySource(args: z.infer<typeof dqTierBySourceSchema>): Promise<unknown> {
   const flavor = getDqFlavor();
   const cols = getDqColumns(flavor);
   const backend = config.dq.backend;
+  const mode = args.mode ?? "source";
 
-  // 1. Build source_name -> tier map from the dbt manifest. Source-level
-  //    meta.tier is repeated on each table source entry; take the first
-  //    non-undefined value per source_name.
+  // 1. Build the manifest -> tier maps.
+  //    sourceTier: source_name -> tier (first table's meta.tier per source group; mode='source')
+  //    tableTier:  "source_name.table_name" -> tier (per-table meta.tier;        mode='table')
   const manifest = loadManifest();
   const sourceTier: Record<string, number> = {};
+  const tableTier: Record<string, number> = {};
+  const coerceTier = (raw: unknown): number | null => {
+    if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+    if (typeof raw === "string" && /^\d+$/.test(raw)) return Number(raw);
+    return null;
+  };
   for (const src of Object.values(manifest.sources)) {
-    if (sourceTier[src.source_name] !== undefined) continue;
-    const tier = (src.meta as { tier?: unknown } | undefined)?.tier;
-    if (typeof tier === "number") {
-      sourceTier[src.source_name] = tier;
-    } else if (typeof tier === "string" && /^\d+$/.test(tier)) {
-      sourceTier[src.source_name] = Number(tier);
-    }
+    const tier = coerceTier((src.meta as { tier?: unknown } | undefined)?.tier);
+    if (tier == null) continue;
+    if (sourceTier[src.source_name] === undefined) sourceTier[src.source_name] = tier;
+    tableTier[`${src.source_name}.${src.name}`] = tier;
   }
 
-  // 2. Query per-source pass-rate over the time window.
+  // 2. Query.
   const filters: string[] = [];
   const params: unknown[] = [];
   if (args.date) {
@@ -163,24 +179,26 @@ export async function dqTierBySource(args: z.infer<typeof dqTierBySourceSchema>)
     const todayClause = backend === "bigquery" ? "CURRENT_DATE()" : "CURRENT_DATE";
     filters.push(`${cols.runAt} = ${todayClause}`);
   }
+  if (args.sourceFilter) {
+    filters.push(`${cols.dataset} = ?`);
+    params.push(args.sourceFilter);
+  }
   const where = "WHERE " + filters.join(" AND ");
 
-  const passExpr =
-    backend === "bigquery"
-      ? `SUM(CASE WHEN LOWER(${cols.status}) = 'pass' THEN 1 ELSE 0 END)`
-      : `SUM(CASE WHEN LOWER(${cols.status}) = 'pass' THEN 1 ELSE 0 END)`;
+  const passExpr = `SUM(CASE WHEN LOWER(${cols.status}) = 'pass' THEN 1 ELSE 0 END)`;
+  const groupCol = mode === "table" ? cols.tableName : cols.dataset;
 
   const sql = `
-    SELECT ${cols.dataset} AS source,
+    SELECT ${groupCol} AS rollup_key,
            COUNT(*) AS total_checks,
            ${passExpr} AS passed_checks
     FROM ${resultsTable()}
     ${where}
-    GROUP BY ${cols.dataset}
-    ORDER BY ${cols.dataset}`;
+    GROUP BY ${groupCol}
+    ORDER BY ${groupCol}`;
   const result = await dqQuery(sql, params);
 
-  // 3. Per-source compute pass rate, tier lookup, meeting/missing.
+  // 3. Per-row tier lookup + pass-rate.
   const targets = getTierTargets();
   const sources: Array<{
     source: string;
@@ -192,14 +210,20 @@ export async function dqTierBySource(args: z.infer<typeof dqTierBySourceSchema>)
     meeting: boolean | null;
   }> = [];
   for (const row of result.rows) {
-    const source = String(row.source ?? "");
+    const key = String(row.rollup_key ?? "");
     const total = Number(row.total_checks ?? 0);
     const passed = Number(row.passed_checks ?? 0);
     const passPct = total > 0 ? (passed / total) * 100 : 0;
-    const tier = sourceTier[source] ?? null;
+    let tier: number | null;
+    if (mode === "table") {
+      const dot = key.indexOf(".");
+      tier = dot > 0 && dot < key.length - 1 ? (tableTier[key] ?? null) : null;
+    } else {
+      tier = sourceTier[key] ?? null;
+    }
     const target = tier != null ? (targets[String(tier)] ?? null) : null;
     const meeting = target == null ? null : passPct >= target;
-    sources.push({ source, tier, target, totalChecks: total, passedChecks: passed, passPct, meeting });
+    sources.push({ source: key, tier, target, totalChecks: total, passedChecks: passed, passPct, meeting });
   }
 
   // 4. Per-tier rollup.
@@ -238,23 +262,28 @@ export async function dqTierBySource(args: z.infer<typeof dqTierBySourceSchema>)
   const caveats: string[] = [];
   const untieredSources = sources.filter((s) => s.tier == null).map((s) => s.source);
   if (untieredSources.length > 0) {
+    const subject = mode === "table" ? "table(s)" : "source(s)";
     caveats.push(
-      `${untieredSources.length} source(s) have no tier in dbt manifest meta.tier — excluded from per-tier rollup: ${untieredSources.slice(0, 10).join(", ")}${untieredSources.length > 10 ? ", ..." : ""}`,
+      `${untieredSources.length} ${subject} have no tier in dbt manifest meta.tier — excluded from per-tier rollup: ${untieredSources.slice(0, 10).join(", ")}${untieredSources.length > 10 ? ", ..." : ""}`,
     );
   }
-  if (Object.keys(sourceTier).length === 0) {
+  const tierMapSize = mode === "table" ? Object.keys(tableTier).length : Object.keys(sourceTier).length;
+  if (tierMapSize === 0) {
+    const subject = mode === "table" ? "table" : "source group";
     caveats.push(
-      "No sources in the dbt manifest carry meta.tier — set tier on each source group in sources.yml to enable per-tier rollup.",
+      `No ${subject} in the dbt manifest carries meta.tier — set tier on each ${subject} in sources.yml to enable per-tier rollup.`,
     );
   }
 
   return {
     backend: result.backend,
     schema: flavor,
+    mode,
     targets,
     sources,
     tierRollup,
     caveats,
     sourcesWithTier: Object.keys(sourceTier).length,
+    tablesWithTier: Object.keys(tableTier).length,
   };
 }

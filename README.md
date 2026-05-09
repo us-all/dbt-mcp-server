@@ -167,14 +167,25 @@ The file is mtime-cached; edits between tool calls are picked up automatically.
 
 ## Per-tier rollup from `quality_checks` — `dq-tier-by-source`
 
-For schemas where `quality_score_daily` has only one row per day (no per-scope/tier breakdown), `dq-tier-by-source` reconstructs a per-tier picture from the raw `quality_checks` rows:
+For schemas where `quality_score_daily` has only one row per day (no per-scope/tier breakdown), `dq-tier-by-source` reconstructs a per-tier picture from the raw `quality_checks` rows. Two modes:
 
-1. Builds a `source_name -> tier` map from the dbt manifest's `sources.<source>.<table>.meta.tier` (set this on each source group in your `sources.yml`).
+### `mode: "source"` (default) — group by source/dataset column
+
+Use when each row of `quality_checks` represents a check on a *source group* and the dataset/source column carries the dbt source-group name directly.
+
+1. Builds a `source_name -> tier` map from the dbt manifest's `sources.<source>.<table>.meta.tier` (first table's tier per source group).
 2. Groups `quality_checks` rows by the dataset/source column and computes pass rate per source over a date or `sinceHours` window.
-3. Looks up each source's tier and target (from the SLA config or defaults), reports meeting / missing per tier.
-4. Untiered sources (no `meta.tier` in manifest) appear in `caveats[]` with their names so you can either tier them in `sources.yml` or accept the gap.
+3. Looks up each source's tier and target (from SLA config or defaults), reports meeting / missing per tier.
 
-Use it when `dq-tier-status` returns a single overall_score and you need a more granular Tier 1 / 2 / 3 breakdown without changing the score-table schema.
+### `mode: "table"` — group by table_name column
+
+Use when the dataset/source column is a category (`bq` / `dbt` / `airflow`) and the actual dbt source-table identifier lives in the `table_name` / `target_name` column as `<source_group>.<table>`. Common in checks tables that consolidate signals from heterogeneous backends.
+
+1. Builds a `<source_group>.<table> -> tier` map from the manifest using each source entry's `source_name + name + meta.tier` — picks up *table-level* tier overrides naturally.
+2. Groups `quality_checks` rows by the `table_name` column. Pre-filter via `sourceFilter` (e.g. `sourceFilter: "bq"`) when only some categories produce parseable target names.
+3. Each rollup key is parsed as `<source_group>.<table>`; rows without a `.` or whose key is not in the manifest land in `caveats[]`.
+
+Untiered rows (no manifest `meta.tier`) and unparseable rows always appear in `caveats[]` so you can tier them or accept the gap.
 
 ## Tested-against schemas
 

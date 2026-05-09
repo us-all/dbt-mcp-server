@@ -139,9 +139,9 @@ describe("dq-tier-by-source rollup", () => {
     const { _setDriverForTest } = await import("../src/clients/dq-store.js");
     _setDriverForTest({
       query: async () => [
-        { source: "us_plus_next",   total_checks: 200, passed_checks: 199 }, // 99.5% — tier 1 meets 99.5
-        { source: "us_campus_next", total_checks: 100, passed_checks: 98 },  // 98.0% — tier 2 meets 99.0? NO (target 99.0)
-        { source: "legacy_logs",    total_checks: 50,  passed_checks: 50 },  // untiered
+        { rollup_key: "us_plus_next",   total_checks: 200, passed_checks: 199 }, // 99.5% — tier 1 meets 99.5
+        { rollup_key: "us_campus_next", total_checks: 100, passed_checks: 98 },  // 98.0% — tier 2 misses 99.0
+        { rollup_key: "legacy_logs",    total_checks: 50,  passed_checks: 50 },  // untiered
       ],
     });
     const { dqTierBySource } = await import("../src/tools/quality-scores.js");
@@ -183,15 +183,68 @@ describe("dq-tier-by-source rollup", () => {
     _setDriverForTest({
       query: async (sql) => {
         calls.push({ sql });
-        return [{ source: "us_plus_next", total_checks: 100, passed_checks: 100 }];
+        return [{ rollup_key: "us_plus_next", total_checks: 100, passed_checks: 100 }];
       },
     });
     const { dqTierBySource } = await import("../src/tools/quality-scores.js");
-    await dqTierBySource({ sinceHours: 24 });
+    await dqTierBySource({ sinceHours: 24, mode: "source" });
     const sql = calls[0]!.sql;
-    expect(sql).toContain("src_group AS source");
+    expect(sql).toContain("src_group AS rollup_key");
     expect(sql).toContain("GROUP BY src_group");
     expect(sql).toContain("ts >= NOW() -");
+  });
+
+  it("mode='table' + sourceFilter handles us-all-shaped data: groups by target_name, parses prefix.table, looks up table-level meta.tier", async () => {
+    const calls: Array<{ sql: string; params: unknown[] }> = [];
+    const { _setDriverForTest } = await import("../src/clients/dq-store.js");
+    _setDriverForTest({
+      query: async (sql, params) => {
+        calls.push({ sql, params });
+        // Emulate us-all bq rows: target_name in '<source_group>.<table>' shape.
+        // us_plus_next.users → tier 1 (per fixture)
+        // us_plus_next.untracked → no fixture entry (untiered)
+        // us_campus_next.courses → tier 2
+        // free_text_no_dot → unparseable
+        return [
+          { rollup_key: "us_plus_next.users",   total_checks: 50, passed_checks: 50 },  // 100% / tier 1 / target 99.5 / meeting
+          { rollup_key: "us_plus_next.untracked", total_checks: 30, passed_checks: 28 }, // 93.3% / untiered (not in fixture)
+          { rollup_key: "us_campus_next.courses", total_checks: 40, passed_checks: 38 }, // 95% / tier 2 / target 99.0 / missing
+          { rollup_key: "free_text_no_dot",     total_checks: 10, passed_checks: 10 },  // unparseable / untiered
+        ];
+      },
+    });
+    const { dqTierBySource } = await import("../src/tools/quality-scores.js");
+    const r = (await dqTierBySource({ mode: "table", sourceFilter: "bq" })) as {
+      mode: string;
+      sources: Array<{ source: string; tier: number | null; meeting: boolean | null; passPct: number }>;
+      tierRollup: Record<string, { sources: number; meeting: number; missing: number }>;
+      tablesWithTier: number;
+      caveats: string[];
+    };
+    expect(r.mode).toBe("table");
+
+    // SQL groups by tableName col + filters by sourceFilter.
+    const sql = calls[0]!.sql;
+    expect(sql).toContain("target_name AS rollup_key");
+    expect(sql).toContain("GROUP BY target_name");
+    expect(sql).toContain("source = ?");
+    expect(calls[0]!.params).toContain("bq");
+
+    // tablesWithTier reflects the manifest: 3 tier-bearing source entries.
+    expect(r.tablesWithTier).toBe(3);
+
+    const byKey: Record<string, typeof r.sources[number]> = {};
+    for (const s of r.sources) byKey[s.source] = s;
+    expect(byKey["us_plus_next.users"]?.tier).toBe(1);
+    expect(byKey["us_plus_next.users"]?.meeting).toBe(true);
+    expect(byKey["us_plus_next.untracked"]?.tier).toBeNull();
+    expect(byKey["us_campus_next.courses"]?.tier).toBe(2);
+    expect(byKey["us_campus_next.courses"]?.meeting).toBe(false);
+    expect(byKey["free_text_no_dot"]?.tier).toBeNull();
+
+    expect(r.tierRollup["1"]?.meeting).toBe(1);
+    expect(r.tierRollup["2"]?.missing).toBe(1);
+    expect(r.caveats.some((c) => c.includes("table(s)"))).toBe(true);
   });
 
   it("flags 'no sources have meta.tier' when manifest carries none", async () => {
@@ -216,14 +269,14 @@ describe("dq-tier-by-source rollup", () => {
 
     const { _setDriverForTest } = await import("../src/clients/dq-store.js");
     _setDriverForTest({
-      query: async () => [{ source: "foo", total_checks: 10, passed_checks: 10 }],
+      query: async () => [{ rollup_key: "foo", total_checks: 10, passed_checks: 10 }],
     });
     const { dqTierBySource } = await import("../src/tools/quality-scores.js");
     const r = (await dqTierBySource({})) as {
       sourcesWithTier: number; caveats: string[]; tierRollup: Record<string, unknown>;
     };
     expect(r.sourcesWithTier).toBe(0);
-    expect(r.caveats.some((c) => c.toLowerCase().includes("no sources"))).toBe(true);
+    expect(r.caveats.some((c) => c.toLowerCase().includes("no source group"))).toBe(true);
     expect(Object.keys(r.tierRollup)).toHaveLength(0);
 
     rmSync(tierlessDir, { recursive: true, force: true });

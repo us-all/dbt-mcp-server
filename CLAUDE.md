@@ -87,7 +87,12 @@ Aggregation 분배:
 
 `DBT_SLA_CONFIG_PATH` (선택) — YAML 파일로 `tier_sla.{1,2,3}` 임계값과 `dbt_sla.{test,freshness}_pass_pct`를 정의. `dq-tier-status`/`dq-tier-by-source`가 이 값을 우선 사용; 없으면 hardcoded `{1: 99.5, 2: 99.0, 3: 95.0}`. `DQ_TIER1_TARGET_PCT` env는 SLA 파일 없을 때 단일 fallback. mtime cached.
 
-`dq-tier-by-source` (신규 도구) — `quality_score_daily`가 하루 한 줄(scope/tier 컬럼 없음)인 환경에서도 per-tier 롤업 제공. 흐름: dbt manifest의 `sources.<source>.<table>.meta.tier` → `source_name -> tier` 맵 구축 → `quality_checks`를 dataset/source 컬럼으로 그룹핑 → 통과율 계산 → tier별 meeting/missing 집계. tier 미설정 source는 `caveats[]`로 노출.
+`dq-tier-by-source` (신규 도구) — `quality_score_daily`가 하루 한 줄(scope/tier 컬럼 없음)인 환경에서도 per-tier 롤업 제공. 두 모드:
+
+- `mode: "source"` (기본) — dataset/source 컬럼이 dbt source group 이름과 동일할 때. source-level meta.tier (각 source group의 첫 테이블 tier 사용).
+- `mode: "table"` — dataset/source 컬럼이 카테고리(bq/dbt/airflow)이고 실제 dbt source-table은 `target_name`이 `<source_group>.<table>` 형식일 때 (us-all 데이터 모양). table-level meta.tier로 tier 정의가 테이블별로 다른 케이스도 처리. `sourceFilter` 옵션으로 사전 필터(e.g. `sourceFilter: "bq"`).
+
+tier 미설정 row + parsing 실패 row는 항상 `caveats[]`로 노출. v0.3.1에서 라이브 us-all 데이터로 검증한 결과 `mode: "source"`만으로는 us-all에 부합하지 않아 `mode: "table"` 추가.
 
 ## 알려진 제약
 
