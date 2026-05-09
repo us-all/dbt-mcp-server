@@ -6,7 +6,7 @@ A read-only window into your dbt project for LLM clients. No `dbt run` triggerin
 
 For DAG triggering / run history / log tails, install the companion **[@us-all/airflow-mcp](https://www.npmjs.com/package/@us-all/airflow-mcp)** alongside.
 
-- 22 tools across 3 categories (`dbt`, `quality`, `meta`)
+- 23 tools across 3 categories (`dbt`, `quality`, `meta`)
 - 4 MCP Prompts for triage workflows
 - 4 aggregation tools that replace 3-5 round-trips of "list / get / list"
 - Read-only by default
@@ -37,7 +37,7 @@ The server speaks MCP stdio; wire it into Claude Desktop / Cursor / any MCP clie
 | Category | Tools | Purpose |
 |----------|-------|---------|
 | `dbt`    | 15 + 2 aggregations | Parse `manifest.json` / `run_results.json` / `sources.json` / `catalog.json` |
-| `quality`| 5 + 2 aggregations | Query `quality_checks` and `quality_score_daily` (BQ or PG) |
+| `quality`| 6 + 2 aggregations | Query `quality_checks` and `quality_score_daily` (BQ or PG); per-tier rollup via `dq-tier-by-source` |
 | `meta`   | 1 (always on) | `search-tools` for natural-language tool discovery |
 
 Toggle with `DBT_TOOLS=dbt` (allowlist) or `DBT_DISABLE=quality` (denylist).
@@ -48,9 +48,9 @@ Toggle with `DBT_TOOLS=dbt` (allowlist) or `DBT_DISABLE=quality` (denylist).
 
 `dbt-list-models`, `dbt-get-model`, `dbt-list-tests`, `dbt-get-test`, `dbt-list-sources`, `dbt-get-source`, `dbt-list-exposures`, `dbt-list-macros`, `dbt-get-macro`, `dbt-list-runs`, `dbt-get-run-results`, `dbt-failed-tests`, `dbt-slow-models`, `dbt-coverage`, `dbt-graph`, `freshness-status`, `incident-context`
 
-### `quality` (5 + 2)
+### `quality` (6 + 2)
 
-`dq-list-checks`, `dq-get-check-history`, `dq-failed-checks-by-dataset`, `dq-score-trend`, `dq-tier-status`, `failed-tests-summary`, `dq-score-snapshot`
+`dq-list-checks`, `dq-get-check-history`, `dq-failed-checks-by-dataset`, `dq-score-trend`, `dq-tier-status`, `dq-tier-by-source`, `failed-tests-summary`, `dq-score-snapshot`
 
 ### Prompts
 
@@ -76,7 +76,8 @@ Toggle with `DBT_TOOLS=dbt` (allowlist) or `DBT_DISABLE=quality` (denylist).
 | `PG_CONNECTION_STRING` | no | When `DQ_BACKEND=postgres` (secret) |
 | `DQ_SCHEMA` | no | `generic` (default) or `us-all` — base schema preset for the `quality` category |
 | `DQ_COL_*` | no | Per-column overrides on top of `DQ_SCHEMA` (see below). Lets you point at any DQ schema without writing a SQL view. |
-| `DQ_TIER1_TARGET_PCT` | no | Tier 1 SLA threshold for `dq-tier-status` when no `tier` column is configured (default 99.5) |
+| `DQ_TIER1_TARGET_PCT` | no | Tier 1 SLA threshold for `dq-tier-status` when no `tier` column is configured (default 99.5). Superseded by `DBT_SLA_CONFIG_PATH` `tier_sla.1` if both are set. |
+| `DBT_SLA_CONFIG_PATH` | no | Optional YAML path with `tier_sla` and `dbt_sla` blocks. Drives `dq-tier-status` thresholds and `dq-tier-by-source` per-tier targets. Mtime cached. |
 | `DBT_ALLOW_WRITE` | no | Reserved for future write tools (none in v0.1) |
 | `DBT_TOOLS` / `DBT_DISABLE` | no | Category toggles |
 
@@ -140,6 +141,40 @@ DQ_COL_CHECK_NAME=none      # synthesize from check_type+tbl
 DQ_COL_SCOPE=none           # no per-team rollup
 DQ_COL_TIER=none            # use DQ_TIER1_TARGET_PCT instead
 ```
+
+## SLA config (optional) — `DBT_SLA_CONFIG_PATH`
+
+Set `DBT_SLA_CONFIG_PATH` to a YAML file to surface project-defined tier targets and DBT SLAs to the quality tools. Schema (extra keys ignored):
+
+```yaml
+dbt_sla:
+  test_pass_pct: 99.0          # used by future dbt-test SLA tools
+  freshness_pass_pct: 99.5     # ditto, freshness
+
+tier_sla:
+  1: 99.5                      # tier-1 overall_score / per-source pass-rate target
+  2: 99.0
+  3: 95.0
+```
+
+When set, the `tier_sla` map drives:
+
+- `dq-tier-status` — per-tier rollup compares each row's `overall_score` against the matching target. Without this file, hardcoded `{1: 99.5, 2: 99.0, 3: 95.0}` is used.
+- `dq-tier-by-source` — per-source pass-rate is compared to the target for that source's tier (resolved from dbt sources.yml `meta.tier`).
+- `dq-tier-status` no-tier-column path (us-all preset / `DQ_COL_TIER=none`) — uses `tier_sla.1` as the single target. `DQ_TIER1_TARGET_PCT` env still works as a fallback when no SLA file is set.
+
+The file is mtime-cached; edits between tool calls are picked up automatically.
+
+## Per-tier rollup from `quality_checks` — `dq-tier-by-source`
+
+For schemas where `quality_score_daily` has only one row per day (no per-scope/tier breakdown), `dq-tier-by-source` reconstructs a per-tier picture from the raw `quality_checks` rows:
+
+1. Builds a `source_name -> tier` map from the dbt manifest's `sources.<source>.<table>.meta.tier` (set this on each source group in your `sources.yml`).
+2. Groups `quality_checks` rows by the dataset/source column and computes pass rate per source over a date or `sinceHours` window.
+3. Looks up each source's tier and target (from the SLA config or defaults), reports meeting / missing per tier.
+4. Untiered sources (no `meta.tier` in manifest) appear in `caveats[]` with their names so you can either tier them in `sources.yml` or accept the gap.
+
+Use it when `dq-tier-status` returns a single overall_score and you need a more granular Tier 1 / 2 / 3 breakdown without changing the score-table schema.
 
 ## Tested-against schemas
 

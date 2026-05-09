@@ -22,6 +22,7 @@
  *    built from `check_type || ':' || table_name`).
  */
 import { config } from "../config.js";
+import { getTier1Target } from "./sla-config.js";
 
 export type DqFlavor = "generic" | "us-all";
 
@@ -153,12 +154,15 @@ export function tableTimeWindowSql(
 }
 
 /**
- * Tier 1 SLA target — used by `dq-tier-status`. v0.1 hardcodes 99.5 (Tier 1).
- * v0.2 may surface a per-tier env var or read from a config table.
+ * Tier 1 SLA target — used by `dq-tier-status` no-tier-column path. Resolution
+ * order (first match wins):
+ *   1. `DBT_SLA_CONFIG_PATH` yaml's `tier_sla.1`
+ *   2. `DQ_TIER1_TARGET_PCT` env var
+ *   3. 99.5
  */
 export function defaultTier1TargetPct(): number {
-  const raw = parseFloat(process.env.DQ_TIER1_TARGET_PCT ?? "99.5");
-  return Number.isFinite(raw) ? raw : 99.5;
+  // Re-export from sla-config for callers that still import this from dq-schema.
+  return getTier1Target();
 }
 
 // keep config import alive (lint)

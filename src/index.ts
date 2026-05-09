@@ -41,6 +41,7 @@ import {
 import {
   dqScoreTrendSchema, dqScoreTrend,
   dqTierStatusSchema, dqTierStatus,
+  dqTierBySourceSchema, dqTierBySource,
 } from "./tools/quality-scores.js";
 import {
   failedTestsSummarySchema, failedTestsSummary,
@@ -101,7 +102,8 @@ tool("dq-list-checks", "List recent rows from DQ_RESULTS_TABLE filtered by datas
 tool("dq-get-check-history", "Time-series of one check_name's status across the last N days", dqGetCheckHistorySchema.shape, wrapToolHandler(dqGetCheckHistory));
 tool("dq-failed-checks-by-dataset", "Group failing checks by dataset across a recent window with the latest 5 failures per dataset", dqFailedChecksByDatasetSchema.shape, wrapToolHandler(dqFailedChecksByDataset));
 tool("dq-score-trend", "Time-series of the 4-axis DQ score (completeness / freshness / validity / anomaly_free) plus overall_score from DQ_SCORE_TABLE", dqScoreTrendSchema.shape, wrapToolHandler(dqScoreTrend));
-tool("dq-tier-status", "Compare today's overall_score per scope against Tier SLA targets (Tier 1 99.5 / Tier 2 99.0 / Tier 3 95.0) and report meeting vs missing counts", dqTierStatusSchema.shape, wrapToolHandler(dqTierStatus));
+tool("dq-tier-status", "Compare today's overall_score per scope against Tier SLA targets (defaults Tier 1 99.5 / 2 99.0 / 3 95.0; override via DBT_SLA_CONFIG_PATH yaml or DQ_TIER1_TARGET_PCT) and report meeting vs missing counts", dqTierStatusSchema.shape, wrapToolHandler(dqTierStatus));
+tool("dq-tier-by-source", "Per-tier rollup computed from quality_checks grouped by source. Reads source-to-tier mapping from dbt sources.yml meta.tier and tier targets from DBT_SLA_CONFIG_PATH (falls back to defaults). Reports per-source pass rate, meeting/missing per tier, and untiered sources as caveats.", dqTierBySourceSchema.shape, wrapToolHandler(dqTierBySource));
 
 tool("failed-tests-summary", "Aggregated 24h-ish view: dbt failed tests + DQ checks failures grouped by dataset + most recent failing rows. Replaces 3+ tool calls (dbt-failed-tests + dq-failed-checks-by-dataset + dq-list-checks).", failedTestsSummarySchema.shape, wrapToolHandler(failedTestsSummary));
 tool("dq-score-snapshot", "Aggregated 4-axis score trend + today's Tier compliance + most recent failing checks. Combines dq-score-trend + dq-tier-status + dq-list-checks(fail).", dqScoreSnapshotSchema.shape, wrapToolHandler(dqScoreSnapshot));

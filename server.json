@@ -6,12 +6,12 @@
     "url": "https://github.com/us-all/dbt-mcp-server",
     "source": "github"
   },
-  "version": "0.2.0",
+  "version": "0.3.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@us-all/dbt-mcp",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "transport": {
         "type": "stdio"
       },
@@ -114,7 +114,11 @@
         },
         {
           "name": "DQ_TIER1_TARGET_PCT",
-          "description": "When no tier column is configured (us-all preset or DQ_COL_TIER=none), the overall_score threshold dq-tier-status compares against (default 99.5)."
+          "description": "When no tier column is configured (us-all preset or DQ_COL_TIER=none), the overall_score threshold dq-tier-status compares against (default 99.5). Superseded by DBT_SLA_CONFIG_PATH tier_sla.1 if both are set."
+        },
+        {
+          "name": "DBT_SLA_CONFIG_PATH",
+          "description": "Optional path to a YAML file that defines tier_sla (per-tier overall_score targets) and dbt_sla (test/freshness pass rates). When set, dq-tier-status and dq-tier-by-source read tier targets from this file instead of the hardcoded {1: 99.5, 2: 99.0, 3: 95.0} defaults. Mtime cached."
         },
         {
           "name": "DBT_TOOLS",

@@ -4,7 +4,7 @@
 
 ## 프로젝트 개요
 
-`@us-all/dbt-mcp` — dbt artifacts(`manifest.json`/`run_results.json`/`sources.json`/`catalog.json`) + 사용자 DQ 결과 테이블(BQ/PG)을 노출하는 stdio MCP. **22 도구 + 4 Prompts**. 전부 read-only.
+`@us-all/dbt-mcp` — dbt artifacts(`manifest.json`/`run_results.json`/`sources.json`/`catalog.json`) + 사용자 DQ 결과 테이블(BQ/PG)을 노출하는 stdio MCP. **23 도구 + 4 Prompts**. 전부 read-only.
 
 - **타겟 dbt**: 1.7+ (manifest schema v11~v13 검증)
 - **DQ 백엔드**: BigQuery 기본 + Postgres 옵션, 둘 다 lazy peer import
@@ -29,7 +29,7 @@ src/
 │   ├── dbt-macros.ts          # dbt-list-macros, dbt-get-macro (2)
 │   ├── dbt-runs.ts            # dbt-list-runs, dbt-get-run-results, dbt-failed-tests, dbt-slow-models (4)
 │   ├── quality-results.ts     # dq-list-checks, dq-get-check-history, dq-failed-checks-by-dataset (3)
-│   ├── quality-scores.ts      # dq-score-trend, dq-tier-status (2) — Tier SLA 비교
+│   ├── quality-scores.ts      # dq-score-trend, dq-tier-status, dq-tier-by-source (3) — Tier SLA 비교 + source.meta.tier 롤업
 │   └── aggregations.ts        # failed-tests-summary, freshness-status, dq-score-snapshot, incident-context (4)
 └── prompts/
     └── index.ts               # 4 Prompts
@@ -57,7 +57,7 @@ pnpm smoke              # dist/index.js 스폰 + initialize + tools/list
 | 카테고리 | 도구 수 | 토글 키 |
 |---------|--------|---------|
 | `dbt`     | 15 + 2 aggregations | `DBT_TOOLS=dbt` |
-| `quality` | 5 + 2 aggregations | `DBT_TOOLS=quality` |
+| `quality` | 6 + 2 aggregations | `DBT_TOOLS=quality` |
 | `meta`    | 1 (always) | — |
 
 Aggregation 분배:
@@ -81,7 +81,13 @@ Aggregation 분배:
 1. **Preset (`DQ_SCHEMA`)**: `generic` (기본) — `check_name`, `check_type`, `dataset`, `table_name`, `status`, `severity`, `failure_count`, `run_at`, `message` / `score_date`, `scope`, `tier`, ...; `us-all` — `run_date`, `check_type`, `dimension`, `source`, `target_name`, `metric_value`, ... (no scope/tier).
 2. **Per-column 오버라이드 (`DQ_COL_*`, v0.2+)**: 각 컬럼별 env로 preset 값 위에 덮어쓰기. nullable 컬럼(`DQ_COL_CHECK_NAME`/`DQ_COL_SCOPE`/`DQ_COL_TIER`)은 `none`/`null`/`-` 센티넬로 "이 컬럼 없음"을 선언 가능 — `check_name`은 synthesized, scope/tier는 single-`overall_score` 경로로 폴백.
 
-따라서 일반화된 외부 스키마도 view 없이 env 매핑만으로 사용 가능. 자동 감지(INFORMATION_SCHEMA probe)는 v0.3+ 후보.
+따라서 일반화된 외부 스키마도 view 없이 env 매핑만으로 사용 가능. 자동 감지(INFORMATION_SCHEMA probe)는 v0.4+ 후보.
+
+## Tier SLA 통합 (v0.3+)
+
+`DBT_SLA_CONFIG_PATH` (선택) — YAML 파일로 `tier_sla.{1,2,3}` 임계값과 `dbt_sla.{test,freshness}_pass_pct`를 정의. `dq-tier-status`/`dq-tier-by-source`가 이 값을 우선 사용; 없으면 hardcoded `{1: 99.5, 2: 99.0, 3: 95.0}`. `DQ_TIER1_TARGET_PCT` env는 SLA 파일 없을 때 단일 fallback. mtime cached.
+
+`dq-tier-by-source` (신규 도구) — `quality_score_daily`가 하루 한 줄(scope/tier 컬럼 없음)인 환경에서도 per-tier 롤업 제공. 흐름: dbt manifest의 `sources.<source>.<table>.meta.tier` → `source_name -> tier` 맵 구축 → `quality_checks`를 dataset/source 컬럼으로 그룹핑 → 통과율 계산 → tier별 meeting/missing 집계. tier 미설정 source는 `caveats[]`로 노출.
 
 ## 알려진 제약
 
