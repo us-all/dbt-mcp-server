@@ -186,3 +186,152 @@ describe("dq-store driver injection (us-all schema, postgres)", () => {
     expect(r.rows.length).toBe(2);
   });
 });
+
+describe("dq-store DQ_COL_* per-column overrides (generic preset baseline)", () => {
+  beforeEach(async () => {
+    process.env.DQ_BACKEND = "postgres";
+    process.env.DQ_SCHEMA = "generic";
+    process.env.PG_CONNECTION_STRING = "postgres://u:p@localhost/data_ops";
+    process.env.DQ_RESULTS_TABLE = "dq.checks";
+    process.env.DQ_SCORE_TABLE = "dq.score_daily";
+    // Custom column mapping — none of these match the generic preset.
+    process.env.DQ_COL_RUN_AT = "checked_at";
+    process.env.DQ_COL_CHECK_TYPE = "type";
+    process.env.DQ_COL_STATUS = "result";
+    process.env.DQ_COL_DATASET = "schema_name";
+    process.env.DQ_COL_TABLE_NAME = "tbl";
+    process.env.DQ_COL_SEVERITY = "level";
+    process.env.DQ_COL_FAILURE_COUNT = "fail_n";
+    process.env.DQ_COL_MESSAGE = "note";
+    process.env.DQ_COL_CHECK_NAME = "check_id";
+    process.env.DQ_COL_SCORE_DATE = "as_of";
+    process.env.DQ_COL_SCOPE = "team";
+    process.env.DQ_COL_TIER = "sla_tier";
+    vi.resetModules();
+    const mod = await import("../src/clients/dq-store.js");
+    mod._setDriverForTest(null);
+  });
+
+  it("dq-list-checks rewrites every column to the DQ_COL_* override", async () => {
+    const calls: Array<{ sql: string }> = [];
+    const { _setDriverForTest } = await import("../src/clients/dq-store.js");
+    _setDriverForTest({
+      query: async (sql) => {
+        calls.push({ sql });
+        return [];
+      },
+    });
+    const { dqListChecks } = await import("../src/tools/quality-results.js");
+    await dqListChecks({ dataset: "us_summary", sinceHours: 24, limit: 50 });
+    const sql = calls[0]!.sql;
+    expect(sql).toContain("check_id AS check_name");
+    expect(sql).toContain("type AS check_type");
+    expect(sql).toContain("schema_name AS dataset");
+    expect(sql).toContain("tbl AS table_name");
+    expect(sql).toContain("result AS status");
+    expect(sql).toContain("level AS severity");
+    expect(sql).toContain("fail_n AS failure_count");
+    expect(sql).toContain("checked_at AS run_at");
+    expect(sql).toContain("note AS message");
+    expect(sql).toContain("checked_at >= NOW() -");
+    expect(sql).toContain("ORDER BY checked_at DESC");
+  });
+
+  it("dq-tier-status uses overridden tier/scope columns when both are set", async () => {
+    const { _setDriverForTest } = await import("../src/clients/dq-store.js");
+    _setDriverForTest({
+      query: async () => [
+        { tier: "1", scope: "team_a", overall_score: 99.7 },
+      ],
+    });
+    const { dqTierStatus } = await import("../src/tools/quality-scores.js");
+    const r = (await dqTierStatus({})) as {
+      tiers: Record<string, { observations: number }>;
+    };
+    expect(r.tiers["1"]?.observations).toBe(1);
+  });
+});
+
+describe("dq-store DQ_COL_* nullable sentinels (mixed preset)", () => {
+  beforeEach(async () => {
+    process.env.DQ_BACKEND = "postgres";
+    process.env.DQ_SCHEMA = "generic";
+    process.env.PG_CONNECTION_STRING = "postgres://u:p@localhost/data_ops";
+    process.env.DQ_RESULTS_TABLE = "dq.checks";
+    process.env.DQ_SCORE_TABLE = "dq.score_daily";
+    process.env.DQ_COL_RUN_AT = "ts";
+    process.env.DQ_COL_DATASET = "schema_name";
+    // Explicitly declare no native check_name / scope / tier even though the
+    // generic preset has them.
+    process.env.DQ_COL_CHECK_NAME = "none";
+    process.env.DQ_COL_SCOPE = "-";
+    process.env.DQ_COL_TIER = "null";
+    delete process.env.DQ_COL_CHECK_TYPE;
+    delete process.env.DQ_COL_STATUS;
+    delete process.env.DQ_COL_TABLE_NAME;
+    delete process.env.DQ_COL_SEVERITY;
+    delete process.env.DQ_COL_FAILURE_COUNT;
+    delete process.env.DQ_COL_MESSAGE;
+    delete process.env.DQ_COL_SCORE_DATE;
+    vi.resetModules();
+    const mod = await import("../src/clients/dq-store.js");
+    mod._setDriverForTest(null);
+  });
+
+  it("dq-list-checks synthesizes check_name when DQ_COL_CHECK_NAME=none", async () => {
+    const calls: Array<{ sql: string }> = [];
+    const { _setDriverForTest } = await import("../src/clients/dq-store.js");
+    _setDriverForTest({
+      query: async (sql) => {
+        calls.push({ sql });
+        return [];
+      },
+    });
+    const { dqListChecks } = await import("../src/tools/quality-results.js");
+    await dqListChecks({ sinceHours: 24, limit: 10 });
+    const sql = calls[0]!.sql;
+    // No native check_name — synthesized from check_type+table_name (preset
+    // values still used for non-overridden columns).
+    expect(sql).toContain("check_type || ':'");
+    expect(sql).toContain("ts >= NOW() -");
+    expect(sql).toContain("schema_name AS dataset");
+    // Score-date column kept at preset since DQ_COL_SCORE_DATE not set.
+  });
+
+  it("dq-score-trend skips scope filter and ORDERs by date only when DQ_COL_SCOPE=-", async () => {
+    const { _setDriverForTest } = await import("../src/clients/dq-store.js");
+    _setDriverForTest({
+      query: async (sql) => {
+        // capture for assertion
+        (globalThis as unknown as { __lastSql?: string }).__lastSql = sql;
+        return [{ score_date: "2026-05-08", overall_score: 99.4 }];
+      },
+    });
+    const { dqScoreTrend } = await import("../src/tools/quality-scores.js");
+    const r = (await dqScoreTrend({ days: 7, scope: "team_a" })) as {
+      caveats: string[]; rows: unknown[];
+    };
+    const sql = (globalThis as unknown as { __lastSql?: string }).__lastSql ?? "";
+    expect(sql).not.toMatch(/team_a/);
+    // ORDER BY date only — no comma-separated scope
+    expect(sql).toMatch(/ORDER BY score_date DESC\s*$/);
+    expect(r.caveats.some((c) => c.toLowerCase().includes("scope"))).toBe(true);
+    expect(r.rows.length).toBe(1);
+  });
+
+  it("dq-tier-status falls back to overall_score path when DQ_COL_TIER=null", async () => {
+    const { _setDriverForTest } = await import("../src/clients/dq-store.js");
+    _setDriverForTest({
+      query: async () => [
+        { score_date: "2026-05-08", overall_score: 99.7, total_checks: 200, failed_checks: 0 },
+      ],
+    });
+    const { dqTierStatus } = await import("../src/tools/quality-scores.js");
+    const r = (await dqTierStatus({})) as {
+      target: number; score: number; meeting: boolean;
+    };
+    expect(r.target).toBe(99.5);
+    expect(r.score).toBe(99.7);
+    expect(r.meeting).toBe(true);
+  });
+});

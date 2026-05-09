@@ -1,18 +1,25 @@
 /**
- * DQ result-table schema flavors.
+ * DQ result-table schema mapping.
  *
- * v0.1 supports two presets via the `DQ_SCHEMA` env var:
+ * Two layers compose the column map:
  *
- * - `generic` (default) — generic-shaped DQ tables:
- *   `quality_checks(run_at, check_name, check_type, dataset, table_name, status, severity, failure_count, message)`
- *   `quality_score_daily(score_date, scope, tier, completeness_pct, freshness_pct, validity_pct, anomaly_free_pct, overall_score)`
+ * 1. **Preset** — picked by `DQ_SCHEMA`:
+ *    - `generic` (default) — `quality_checks(run_at, check_name, check_type,
+ *      dataset, table_name, status, severity, failure_count, message)` +
+ *      `quality_score_daily(score_date, scope, tier, ...)`
+ *    - `us-all` — `quality_checks(run_date, check_type, dimension, source,
+ *      target_name, status, metric_value, threshold, details)` +
+ *      `quality_score_daily(run_date, ..., overall_score, total_checks,
+ *      failed_checks)` (no scope, no tier)
  *
- * - `us-all` — schema used internally at us-all (Postgres `data_ops`):
- *   `quality_checks(run_date, check_type, dimension, source, target_name, status, metric_value, threshold, details)`
- *   `quality_score_daily(run_date, completeness_pct, freshness_pct, validity_pct, anomaly_free_pct, overall_score, total_checks, failed_checks)`
+ * 2. **Per-column override** — any `DQ_COL_*` env var, when set, replaces
+ *    the preset value for that single column. Lets users point the server
+ *    at an arbitrary DQ schema without writing a SQL view.
  *
- * Pick the flavor that matches the table you're pointing at. v0.2 will introduce
- * per-column env vars (`DQ_COL_*`) for arbitrary schemas.
+ *    Nullable columns (`check_name`, `scope`, `tier`) accept the sentinels
+ *    `none` / `null` / `-` to declare "no native column" — the tools then
+ *    fall back to synthesized values where possible (e.g. check_name is
+ *    built from `check_type || ':' || table_name`).
  */
 import { config } from "../config.js";
 
@@ -46,44 +53,77 @@ export interface DqColumnMap {
   tier: string | null;    // generic: tier      | us-all: NULL
 }
 
+const GENERIC_PRESET: DqColumnMap = {
+  runAt: "run_at",
+  checkType: "check_type",
+  status: "status",
+  dataset: "dataset",
+  tableName: "table_name",
+  severity: "severity",
+  failureCount: "failure_count",
+  message: "message",
+  checkName: "check_name",
+  scoreDate: "score_date",
+  scope: "scope",
+  tier: "tier",
+};
+
+const US_ALL_PRESET: DqColumnMap = {
+  runAt: "run_date",
+  checkType: "check_type",
+  status: "status",
+  dataset: "source",
+  tableName: "target_name",
+  severity: "dimension",
+  failureCount: "metric_value",
+  message: "details::text",
+  checkName: null,
+  scoreDate: "run_date",
+  scope: null,
+  tier: null,
+};
+
+const NULL_SENTINELS = new Set(["none", "null", "-"]);
+
+function envCol(name: string, fallback: string): string {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const trimmed = raw.trim();
+  return trimmed || fallback;
+}
+
+function envColNullable(name: string, fallback: string | null): string | null {
+  const raw = process.env[name];
+  if (raw === undefined) return fallback;
+  const trimmed = raw.trim();
+  if (!trimmed) return fallback;
+  if (NULL_SENTINELS.has(trimmed.toLowerCase())) return null;
+  return trimmed;
+}
+
 export function getDqColumns(flavor: DqFlavor = getDqFlavor()): DqColumnMap {
-  if (flavor === "us-all") {
-    return {
-      runAt: "run_date",
-      checkType: "check_type",
-      status: "status",
-      dataset: "source",
-      tableName: "target_name",
-      severity: "dimension",
-      failureCount: "metric_value",
-      message: "details::text",
-      checkName: null,
-      scoreDate: "run_date",
-      scope: null,
-      tier: null,
-    };
-  }
+  const preset = flavor === "us-all" ? US_ALL_PRESET : GENERIC_PRESET;
   return {
-    runAt: "run_at",
-    checkType: "check_type",
-    status: "status",
-    dataset: "dataset",
-    tableName: "table_name",
-    severity: "severity",
-    failureCount: "failure_count",
-    message: "message",
-    checkName: "check_name",
-    scoreDate: "score_date",
-    scope: "scope",
-    tier: "tier",
+    runAt: envCol("DQ_COL_RUN_AT", preset.runAt),
+    checkType: envCol("DQ_COL_CHECK_TYPE", preset.checkType),
+    status: envCol("DQ_COL_STATUS", preset.status),
+    dataset: envCol("DQ_COL_DATASET", preset.dataset),
+    tableName: envCol("DQ_COL_TABLE_NAME", preset.tableName),
+    severity: envCol("DQ_COL_SEVERITY", preset.severity),
+    failureCount: envCol("DQ_COL_FAILURE_COUNT", preset.failureCount),
+    message: envCol("DQ_COL_MESSAGE", preset.message),
+    checkName: envColNullable("DQ_COL_CHECK_NAME", preset.checkName),
+    scoreDate: envCol("DQ_COL_SCORE_DATE", preset.scoreDate),
+    scope: envColNullable("DQ_COL_SCOPE", preset.scope),
+    tier: envColNullable("DQ_COL_TIER", preset.tier),
   };
 }
 
 /**
- * Returns true if the configured DQ_SCHEMA flavor exposes a `scope` dimension
- * on the score table (i.e. one row per (date, scope)). When false, the score
- * table has one row per date — the whole org rolled up — and `scope` filters /
- * tier-by-scope rollups must be skipped.
+ * Returns true if the resolved schema exposes a `scope` dimension on the score
+ * table (i.e. one row per (date, scope)). When false, the score table has one
+ * row per date — the whole org rolled up — and `scope` filters / tier-by-scope
+ * rollups must be skipped.
  */
 export function hasScope(flavor: DqFlavor = getDqFlavor()): boolean {
   return getDqColumns(flavor).scope !== null;

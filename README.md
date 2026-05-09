@@ -74,8 +74,9 @@ Toggle with `DBT_TOOLS=dbt` (allowlist) or `DBT_DISABLE=quality` (denylist).
 | `GOOGLE_APPLICATION_CREDENTIALS` | no | For BigQuery backend (ADC fallback supported) |
 | `BQ_PROJECT_ID` | no | Explicit BQ project (otherwise inferred from ADC) |
 | `PG_CONNECTION_STRING` | no | When `DQ_BACKEND=postgres` (secret) |
-| `DQ_SCHEMA` | no | `generic` (default) or `us-all` — selects schema flavor for the `quality` category |
-| `DQ_TIER1_TARGET_PCT` | no | Tier 1 SLA threshold for `dq-tier-status` when `DQ_SCHEMA=us-all` (default 99.5) |
+| `DQ_SCHEMA` | no | `generic` (default) or `us-all` — base schema preset for the `quality` category |
+| `DQ_COL_*` | no | Per-column overrides on top of `DQ_SCHEMA` (see below). Lets you point at any DQ schema without writing a SQL view. |
+| `DQ_TIER1_TARGET_PCT` | no | Tier 1 SLA threshold for `dq-tier-status` when no `tier` column is configured (default 99.5) |
 | `DBT_ALLOW_WRITE` | no | Reserved for future write tools (none in v0.1) |
 | `DBT_TOOLS` / `DBT_DISABLE` | no | Category toggles |
 
@@ -103,7 +104,42 @@ In this flavor `quality_score_daily` is one row per day (no per-scope rollup, no
 
 `dq-get-check-history` requires `checkName` formatted as `'<check_type>:<target_name>'` since us-all has no native `check_name` column.
 
-v0.2 will add per-column env vars (`DQ_COL_*`) for arbitrary schemas.
+### Per-column overrides — `DQ_COL_*`
+
+If your DQ tables don't match either preset, layer per-column overrides on top of `DQ_SCHEMA`. Any `DQ_COL_*` env var, when set, replaces the preset value for that single column. Unset vars keep the preset default.
+
+| Env var | Logical concept | Generic preset | us-all preset |
+|---------|-----------------|----------------|---------------|
+| `DQ_COL_RUN_AT`        | timestamp/date on the checks table | `run_at` | `run_date` |
+| `DQ_COL_CHECK_TYPE`    | check type / dimension family       | `check_type` | `check_type` |
+| `DQ_COL_STATUS`        | pass/fail/warn/error               | `status` | `status` |
+| `DQ_COL_DATASET`       | dataset / source / schema           | `dataset` | `source` |
+| `DQ_COL_TABLE_NAME`    | table or target name                | `table_name` | `target_name` |
+| `DQ_COL_SEVERITY`      | severity / dimension                | `severity` | `dimension` |
+| `DQ_COL_FAILURE_COUNT` | numeric failure count / metric      | `failure_count` | `metric_value` |
+| `DQ_COL_MESSAGE`       | free-text or JSON message           | `message` | `details::text` |
+| `DQ_COL_CHECK_NAME`    | natural identifier of the check     | `check_name` | _(none)_ |
+| `DQ_COL_SCORE_DATE`    | date column on the score table      | `score_date` | `run_date` |
+| `DQ_COL_SCOPE`         | scope/tenant column on score table  | `scope` | _(none)_ |
+| `DQ_COL_TIER`          | tier column on score table          | `tier` | _(none)_ |
+
+For the three nullable columns (`DQ_COL_CHECK_NAME`, `DQ_COL_SCOPE`, `DQ_COL_TIER`), set the value to `none` / `null` / `-` to declare "no native column":
+- Without `check_name` → the tools synthesize one from `check_type || ':' || table_name`. `dq-get-check-history` then expects `checkName` formatted as `'<check_type>:<table_name>'`.
+- Without `scope` → `dq-score-trend`'s `scope` filter is ignored (with a caveat) and `dq-tier-status` switches to the single-`overall_score` path that compares against `DQ_TIER1_TARGET_PCT`.
+- Without `tier` → same single-`overall_score` fallback.
+
+Example — generic preset against a Postgres schema where columns happen to be named differently:
+
+```
+DQ_SCHEMA=generic
+DQ_COL_RUN_AT=checked_at
+DQ_COL_DATASET=schema_name
+DQ_COL_TABLE_NAME=tbl
+DQ_COL_FAILURE_COUNT=fail_n
+DQ_COL_CHECK_NAME=none      # synthesize from check_type+tbl
+DQ_COL_SCOPE=none           # no per-team rollup
+DQ_COL_TIER=none            # use DQ_TIER1_TARGET_PCT instead
+```
 
 ## Tested-against schemas
 

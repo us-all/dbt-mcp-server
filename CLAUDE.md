@@ -74,14 +74,14 @@ Aggregation 분배:
 - **Aggregation caveats**: `aggregate()` 헬퍼로 fan-out 호출 → 부분 실패는 `caveats` 배열로 노출.
 - **민감정보 redaction**: `wrapToolHandler` redactionPatterns에 `PG_CONNECTION_STRING`, PEM private key 마스킹.
 
-## DQ 결과 테이블 가정 스키마 (v0.1)
+## DQ 결과 테이블 스키마
 
-`quality` 카테고리 도구는 다음 컬럼을 가정:
+`quality` 카테고리 도구는 두 단계로 컬럼을 해석:
 
-- `DQ_RESULTS_TABLE`: `check_name`, `check_type`, `dataset`, `table_name`, `status`, `severity`, `failure_count`, `run_at`, `message`
-- `DQ_SCORE_TABLE`: `score_date`, `scope`, `tier`, `completeness_pct`, `freshness_pct`, `validity_pct`, `anomaly_free_pct`, `overall_score`
+1. **Preset (`DQ_SCHEMA`)**: `generic` (기본) — `check_name`, `check_type`, `dataset`, `table_name`, `status`, `severity`, `failure_count`, `run_at`, `message` / `score_date`, `scope`, `tier`, ...; `us-all` — `run_date`, `check_type`, `dimension`, `source`, `target_name`, `metric_value`, ... (no scope/tier).
+2. **Per-column 오버라이드 (`DQ_COL_*`, v0.2+)**: 각 컬럼별 env로 preset 값 위에 덮어쓰기. nullable 컬럼(`DQ_COL_CHECK_NAME`/`DQ_COL_SCOPE`/`DQ_COL_TIER`)은 `none`/`null`/`-` 센티넬로 "이 컬럼 없음"을 선언 가능 — `check_name`은 synthesized, scope/tier는 single-`overall_score` 경로로 폴백.
 
-다른 컬럼명 사용시 v0.2의 ColumnMapping config 도입까지 사용자 측에서 view로 alias 권장.
+따라서 일반화된 외부 스키마도 view 없이 env 매핑만으로 사용 가능. 자동 감지(INFORMATION_SCHEMA probe)는 v0.3+ 후보.
 
 ## 알려진 제약
 

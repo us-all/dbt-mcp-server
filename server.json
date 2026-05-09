@@ -6,12 +6,12 @@
     "url": "https://github.com/us-all/dbt-mcp-server",
     "source": "github"
   },
-  "version": "0.1.1",
+  "version": "0.2.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@us-all/dbt-mcp",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "transport": {
         "type": "stdio"
       },
@@ -61,12 +61,60 @@
         },
         {
           "name": "DQ_SCHEMA",
-          "description": "DQ result-table schema flavor: 'generic' (default) or 'us-all'.",
+          "description": "DQ result-table schema preset: 'generic' (default) or 'us-all'. Use DQ_COL_* env vars to override individual columns on top of the preset.",
           "default": "generic"
         },
         {
+          "name": "DQ_COL_RUN_AT",
+          "description": "Override for the timestamp/date column on the DQ checks table. Default depends on DQ_SCHEMA preset."
+        },
+        {
+          "name": "DQ_COL_CHECK_TYPE",
+          "description": "Override for the check-type column on the DQ checks table. Default 'check_type'."
+        },
+        {
+          "name": "DQ_COL_STATUS",
+          "description": "Override for the status column on the DQ checks table. Default 'status'."
+        },
+        {
+          "name": "DQ_COL_DATASET",
+          "description": "Override for the dataset/source column on the DQ checks table. Default depends on preset."
+        },
+        {
+          "name": "DQ_COL_TABLE_NAME",
+          "description": "Override for the table/target-name column on the DQ checks table. Default depends on preset."
+        },
+        {
+          "name": "DQ_COL_SEVERITY",
+          "description": "Override for the severity/dimension column on the DQ checks table. Default depends on preset."
+        },
+        {
+          "name": "DQ_COL_FAILURE_COUNT",
+          "description": "Override for the numeric failure-count column on the DQ checks table. Default depends on preset."
+        },
+        {
+          "name": "DQ_COL_MESSAGE",
+          "description": "Override for the message column on the DQ checks table. Default depends on preset."
+        },
+        {
+          "name": "DQ_COL_CHECK_NAME",
+          "description": "Override for the check_name column on the DQ checks table. Set to 'none'/'null'/'-' to synthesize check_name from check_type and table_name."
+        },
+        {
+          "name": "DQ_COL_SCORE_DATE",
+          "description": "Override for the date column on the DQ score-daily table. Default depends on preset."
+        },
+        {
+          "name": "DQ_COL_SCOPE",
+          "description": "Override for the scope column on the DQ score-daily table. Set to 'none'/'null'/'-' if the table has no per-scope rollup."
+        },
+        {
+          "name": "DQ_COL_TIER",
+          "description": "Override for the tier column on the DQ score-daily table. Set to 'none'/'null'/'-' if the table has no tier dimension."
+        },
+        {
           "name": "DQ_TIER1_TARGET_PCT",
-          "description": "When DQ_SCHEMA=us-all, the overall_score threshold dq-tier-status compares against (default 99.5)."
+          "description": "When no tier column is configured (us-all preset or DQ_COL_TIER=none), the overall_score threshold dq-tier-status compares against (default 99.5)."
         },
         {
           "name": "DBT_TOOLS",
