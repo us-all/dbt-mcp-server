@@ -6,9 +6,9 @@ A read-only window into your dbt project for LLM clients. No `dbt run` triggerin
 
 For DAG triggering / run history / log tails, install the companion **[@us-all/airflow-mcp](https://www.npmjs.com/package/@us-all/airflow-mcp)** alongside.
 
-- 23 tools across 3 categories (`dbt`, `quality`, `meta`)
+- 27 tools across 3 categories (`dbt`, `quality`, `meta`) — 21 primitive tools + 5 aggregations + 1 meta
 - 4 MCP Prompts for triage workflows
-- 4 aggregation tools that replace 3-5 round-trips of "list / get / list"
+- 5 aggregation tools that replace 3-5 round-trips of "list / get / list"
 - Read-only by default
 - Hybrid backend: BigQuery (default) or Postgres for DQ result tables — both peer-imported lazily
 
@@ -36,7 +36,7 @@ The server speaks MCP stdio; wire it into Claude Desktop / Cursor / any MCP clie
 
 | Category | Tools | Purpose |
 |----------|-------|---------|
-| `dbt`    | 15 + 2 aggregations | Parse `manifest.json` / `run_results.json` / `sources.json` / `catalog.json` |
+| `dbt`    | 15 + 3 aggregations | Parse `manifest.json` / `run_results.json` / `sources.json` / `catalog.json` |
 | `quality`| 6 + 2 aggregations | Query `quality_checks` and `quality_score_daily` (BQ or PG); per-tier rollup via `dq-tier-by-source` |
 | `meta`   | 1 (always on) | `search-tools` for natural-language tool discovery |
 
@@ -44,9 +44,9 @@ Toggle with `DBT_TOOLS=dbt` (allowlist) or `DBT_DISABLE=quality` (denylist).
 
 ## Tools at a glance
 
-### `dbt` (15 + 2)
+### `dbt` (15 + 3)
 
-`dbt-list-models`, `dbt-get-model`, `dbt-list-tests`, `dbt-get-test`, `dbt-list-sources`, `dbt-get-source`, `dbt-list-exposures`, `dbt-list-macros`, `dbt-get-macro`, `dbt-list-runs`, `dbt-get-run-results`, `dbt-failed-tests`, `dbt-slow-models`, `dbt-coverage`, `dbt-graph`, `freshness-status`, `incident-context`
+`dbt-list-models`, `dbt-get-model`, `dbt-list-tests`, `dbt-get-test`, `dbt-list-sources`, `dbt-get-source`, `dbt-list-exposures`, `dbt-list-macros`, `dbt-get-macro`, `dbt-list-runs`, `dbt-get-run-results`, `dbt-failed-tests`, `dbt-slow-models`, `dbt-coverage`, `dbt-graph`, `freshness-status`, `incident-context`, `dbt-sla-status`
 
 ### `quality` (6 + 2)
 
@@ -148,8 +148,8 @@ Set `DBT_SLA_CONFIG_PATH` to a YAML file to surface project-defined tier targets
 
 ```yaml
 dbt_sla:
-  test_pass_pct: 99.0          # used by future dbt-test SLA tools
-  freshness_pass_pct: 99.5     # ditto, freshness
+  test_pass_pct: 99.0          # consumed by dbt-sla-status (test pass rate threshold)
+  freshness_pass_pct: 99.5     # consumed by dbt-sla-status (source freshness pass rate threshold)
 
 tier_sla:
   1: 99.5                      # tier-1 overall_score / per-source pass-rate target
@@ -162,6 +162,10 @@ When set, the `tier_sla` map drives:
 - `dq-tier-status` — per-tier rollup compares each row's `overall_score` against the matching target. Without this file, hardcoded `{1: 99.5, 2: 99.0, 3: 95.0}` is used.
 - `dq-tier-by-source` — per-source pass-rate is compared to the target for that source's tier (resolved from dbt sources.yml `meta.tier`).
 - `dq-tier-status` no-tier-column path (us-all preset / `DQ_COL_TIER=none`) — uses `tier_sla.1` as the single target. `DQ_TIER1_TARGET_PCT` env still works as a fallback when no SLA file is set.
+
+The `dbt_sla` block drives:
+
+- `dbt-sla-status` — computes test pass rate from latest `run_results.json` and freshness pass rate from `sources.json`, then compares each axis against `dbt_sla.test_pass_pct` / `dbt_sla.freshness_pass_pct`. Returns `passPct`, `target`, `meeting` per axis plus caveats when fields or artifacts are missing.
 
 The file is mtime-cached; edits between tool calls are picked up automatically.
 

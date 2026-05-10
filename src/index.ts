@@ -48,6 +48,7 @@ import {
   freshnessStatusSchema, freshnessStatus,
   dqScoreSnapshotSchema, dqScoreSnapshot,
   incidentContextSchema, incidentContext,
+  dbtSlaStatusSchema, dbtSlaStatus,
 } from "./tools/aggregations.js";
 import { registry, searchToolsSchema, searchTools, type Category } from "./tool-registry.js";
 import { registerPrompts } from "./prompts/index.js";
@@ -94,6 +95,7 @@ tool("dbt-graph", "Walk dbt parent_map / child_map to return upstream and downst
 // dbt-centric aggregations live in the dbt category.
 tool("freshness-status", "Cross-reference dbt source freshness criteria with sources.json results in a single 'is anything stale right now?' answer.", freshnessStatusSchema.shape, wrapToolHandler(freshnessStatus));
 tool("incident-context", "Single asset deep-dive: dbt definition + recent test failures + DQ checks for the dataset. Designed to anchor an LLM-driven incident triage.", incidentContextSchema.shape, wrapToolHandler(incidentContext));
+tool("dbt-sla-status", "Compare latest dbt run test pass rate and source freshness pass rate against DBT_SLA_CONFIG_PATH thresholds (dbt_sla.test_pass_pct / freshness_pass_pct). Returns per-axis passPct/target/meeting plus caveats when SLA fields or artifacts are missing.", dbtSlaStatusSchema.shape, wrapToolHandler(dbtSlaStatus));
 
 // --- quality category ---
 currentCategory = "quality";

@@ -5,8 +5,9 @@ import { dqFailedChecksByDataset, dqListChecks } from "./quality-results.js";
 import { dqScoreTrend, dqTierStatus } from "./quality-scores.js";
 import { dbtGetSource } from "./dbt-sources.js";
 import { dbtGetModel } from "./dbt-models.js";
-import { loadManifest, loadSources } from "../clients/dbt-artifacts.js";
+import { loadManifest, loadRunResults, loadSources } from "../clients/dbt-artifacts.js";
 import { dqConfigured } from "../config.js";
+import { loadSlaConfig } from "../clients/sla-config.js";
 
 export const failedTestsSummarySchema = z.object({
   recentRuns: z.coerce.number().int().min(1).max(20).default(3).describe("Look at last N dbt runs"),
@@ -99,6 +100,118 @@ export async function dqScoreSnapshot(args: z.infer<typeof dqScoreSnapshotSchema
     caveats,
   );
   return { days: args.days, trend, tier, failingTop: failing, caveats };
+}
+
+export const dbtSlaStatusSchema = z.object({});
+
+export async function dbtSlaStatus(_args: z.infer<typeof dbtSlaStatusSchema>): Promise<unknown> {
+  const caveats: string[] = [];
+  const sla = loadSlaConfig();
+  const testTarget = sla?.dbtSla?.testPassPct;
+  const freshnessTarget = sla?.dbtSla?.freshnessPassPct;
+  if (!sla) {
+    caveats.push(
+      "DBT_SLA_CONFIG_PATH not set — pass rates are reported but no SLA target/meeting comparison is available.",
+    );
+  } else {
+    if (testTarget === undefined) caveats.push("dbt_sla.test_pass_pct not configured — test target/meeting null");
+    if (freshnessTarget === undefined) {
+      caveats.push("dbt_sla.freshness_pass_pct not configured — freshness target/meeting null");
+    }
+  }
+
+  let testStatus: Record<string, unknown> | null = null;
+  try {
+    const run = loadRunResults();
+    let total = 0;
+    let passed = 0;
+    let failed = 0;
+    let skipped = 0;
+    for (const r of run.results) {
+      if (!r.unique_id.startsWith("test.")) continue;
+      if (r.status === "skipped") {
+        skipped++;
+        continue;
+      }
+      total++;
+      if (r.status === "pass" || r.status === "success") passed++;
+      else failed++;
+    }
+    if (total === 0) {
+      caveats.push("Latest run_results.json contains no test executions — testStatus pass% null");
+      testStatus = {
+        invocationId: run.metadata.invocation_id,
+        generatedAt: run.metadata.generated_at,
+        totalTests: 0,
+        passedTests: 0,
+        failedTests: 0,
+        skippedTests: skipped,
+        passPct: null,
+        target: testTarget ?? null,
+        meeting: null,
+      };
+    } else {
+      const passPct = Math.round((passed / total) * 1000) / 10;
+      testStatus = {
+        invocationId: run.metadata.invocation_id,
+        generatedAt: run.metadata.generated_at,
+        totalTests: total,
+        passedTests: passed,
+        failedTests: failed,
+        skippedTests: skipped,
+        passPct,
+        target: testTarget ?? null,
+        meeting: testTarget !== undefined ? passPct >= testTarget : null,
+      };
+    }
+  } catch (err) {
+    caveats.push(`run_results.json unavailable: ${(err as Error).message}`);
+  }
+
+  let freshnessStatus: Record<string, unknown> | null = null;
+  try {
+    const sources = loadSources();
+    let total = 0;
+    let passed = 0;
+    let failed = 0;
+    for (const r of sources.results) {
+      total++;
+      if (r.status === "pass") passed++;
+      else failed++;
+    }
+    if (total === 0) {
+      caveats.push("sources.json contains no freshness results — freshnessStatus pass% null");
+      freshnessStatus = {
+        generatedAt: sources.metadata.generated_at,
+        totalSources: 0,
+        passedSources: 0,
+        failedSources: 0,
+        passPct: null,
+        target: freshnessTarget ?? null,
+        meeting: null,
+      };
+    } else {
+      const passPct = Math.round((passed / total) * 1000) / 10;
+      freshnessStatus = {
+        generatedAt: sources.metadata.generated_at,
+        totalSources: total,
+        passedSources: passed,
+        failedSources: failed,
+        passPct,
+        target: freshnessTarget ?? null,
+        meeting: freshnessTarget !== undefined ? passPct >= freshnessTarget : null,
+      };
+    }
+  } catch (err) {
+    caveats.push(`sources.json unavailable: ${(err as Error).message}`);
+  }
+
+  return {
+    slaConfigPath: process.env.DBT_SLA_CONFIG_PATH ?? null,
+    testStatus,
+    freshnessStatus,
+    caveats,
+  };
 }
 
 export const incidentContextSchema = z.object({

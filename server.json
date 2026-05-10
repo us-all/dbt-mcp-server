@@ -6,12 +6,12 @@
     "url": "https://github.com/us-all/dbt-mcp-server",
     "source": "github"
   },
-  "version": "0.3.1",
+  "version": "0.4.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@us-all/dbt-mcp",
-      "version": "0.3.1",
+      "version": "0.4.0",
       "transport": {
         "type": "stdio"
       },
@@ -118,7 +118,7 @@
         },
         {
           "name": "DBT_SLA_CONFIG_PATH",
-          "description": "Optional path to a YAML file that defines tier_sla (per-tier overall_score targets) and dbt_sla (test/freshness pass rates). When set, dq-tier-status and dq-tier-by-source read tier targets from this file instead of the hardcoded {1: 99.5, 2: 99.0, 3: 95.0} defaults. Mtime cached."
+          "description": "Optional path to a YAML file that defines tier_sla (per-tier overall_score targets) and dbt_sla (test/freshness pass rates). When set, dq-tier-status and dq-tier-by-source read tier targets from this file, and dbt-sla-status compares run_results / sources pass rates against dbt_sla.test_pass_pct / freshness_pass_pct. Mtime cached."
         },
         {
           "name": "DBT_TOOLS",

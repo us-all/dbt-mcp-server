@@ -4,7 +4,7 @@
 
 ## 프로젝트 개요
 
-`@us-all/dbt-mcp` — dbt artifacts(`manifest.json`/`run_results.json`/`sources.json`/`catalog.json`) + 사용자 DQ 결과 테이블(BQ/PG)을 노출하는 stdio MCP. **23 도구 + 4 Prompts**. 전부 read-only.
+`@us-all/dbt-mcp` — dbt artifacts(`manifest.json`/`run_results.json`/`sources.json`/`catalog.json`) + 사용자 DQ 결과 테이블(BQ/PG)을 노출하는 stdio MCP. **27 도구 (21 primitive + 5 aggregations + 1 meta) + 4 Prompts**. 전부 read-only.
 
 - **타겟 dbt**: 1.7+ (manifest schema v11~v13 검증)
 - **DQ 백엔드**: BigQuery 기본 + Postgres 옵션, 둘 다 lazy peer import
@@ -30,7 +30,7 @@ src/
 │   ├── dbt-runs.ts            # dbt-list-runs, dbt-get-run-results, dbt-failed-tests, dbt-slow-models (4)
 │   ├── quality-results.ts     # dq-list-checks, dq-get-check-history, dq-failed-checks-by-dataset (3)
 │   ├── quality-scores.ts      # dq-score-trend, dq-tier-status, dq-tier-by-source (3) — Tier SLA 비교 + source.meta.tier 롤업
-│   └── aggregations.ts        # failed-tests-summary, freshness-status, dq-score-snapshot, incident-context (4)
+│   └── aggregations.ts        # failed-tests-summary, freshness-status, dq-score-snapshot, incident-context, dbt-sla-status (5)
 └── prompts/
     └── index.ts               # 4 Prompts
 
@@ -56,12 +56,12 @@ pnpm smoke              # dist/index.js 스폰 + initialize + tools/list
 
 | 카테고리 | 도구 수 | 토글 키 |
 |---------|--------|---------|
-| `dbt`     | 15 + 2 aggregations | `DBT_TOOLS=dbt` |
+| `dbt`     | 15 + 3 aggregations | `DBT_TOOLS=dbt` |
 | `quality` | 6 + 2 aggregations | `DBT_TOOLS=quality` |
 | `meta`    | 1 (always) | — |
 
 Aggregation 분배:
-- `freshness-status` / `incident-context` → dbt category (anchor가 dbt 자산)
+- `freshness-status` / `incident-context` / `dbt-sla-status` → dbt category (anchor가 dbt artifact)
 - `failed-tests-summary` / `dq-score-snapshot` → quality category (DQ 결과 테이블 의존도 큼)
 
 ## 설계 원칙
@@ -85,7 +85,9 @@ Aggregation 분배:
 
 ## Tier SLA 통합 (v0.3+)
 
-`DBT_SLA_CONFIG_PATH` (선택) — YAML 파일로 `tier_sla.{1,2,3}` 임계값과 `dbt_sla.{test,freshness}_pass_pct`를 정의. `dq-tier-status`/`dq-tier-by-source`가 이 값을 우선 사용; 없으면 hardcoded `{1: 99.5, 2: 99.0, 3: 95.0}`. `DQ_TIER1_TARGET_PCT` env는 SLA 파일 없을 때 단일 fallback. mtime cached.
+`DBT_SLA_CONFIG_PATH` (선택) — YAML 파일로 `tier_sla.{1,2,3}` 임계값과 `dbt_sla.{test,freshness}_pass_pct`를 정의. `dq-tier-status`/`dq-tier-by-source`가 tier_sla를 우선 사용; 없으면 hardcoded `{1: 99.5, 2: 99.0, 3: 95.0}`. `DQ_TIER1_TARGET_PCT` env는 SLA 파일 없을 때 단일 fallback. mtime cached.
+
+`dbt-sla-status` (v0.4 신규 도구) — 최신 `run_results.json`에서 test pass rate, `sources.json`에서 freshness pass rate를 계산해 `dbt_sla.test_pass_pct` / `freshness_pass_pct` 임계값과 비교. 각 축에 `passPct`, `target`, `meeting` 반환. SLA 파일 미설정 시 passPct만 보고하고 target/meeting은 null + caveat. 둘 중 하나만 설정된 경우도 부분 비교 + caveat. skipped test는 분모에서 제외. v0.3 `dbt_sla` 블록이 처음으로 실 사용처를 갖는 도구.
 
 `dq-tier-by-source` (신규 도구) — `quality_score_daily`가 하루 한 줄(scope/tier 컬럼 없음)인 환경에서도 per-tier 롤업 제공. 두 모드:
 

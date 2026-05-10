@@ -283,6 +283,147 @@ describe("dq-tier-by-source rollup", () => {
   });
 });
 
+describe("dbt-sla-status aggregation", () => {
+  let slaTmp: string;
+  let projTmp: string;
+
+  beforeEach(() => {
+    delete process.env.DBT_SLA_CONFIG_PATH;
+    delete process.env.DQ_TIER1_TARGET_PCT;
+    vi.resetModules();
+
+    projTmp = mkdtempSync(join(tmpdir(), "dbt-mcp-sla-status-"));
+    process.env.DBT_PROJECT_DIR = projTmp;
+    process.env.DBT_TARGET_DIR = projTmp;
+
+    // Latest run_results.json: 4 tests — 3 pass, 1 fail; 1 skipped (excluded from denominator)
+    writeFileSync(
+      join(projTmp, "run_results.json"),
+      JSON.stringify({
+        metadata: {
+          dbt_schema_version: "https://schemas.getdbt.com/dbt/run-results/v6.json",
+          generated_at: "2026-05-10T01:00:00Z",
+          invocation_id: "inv-test-001",
+        },
+        results: [
+          { unique_id: "test.proj.t1", status: "pass" },
+          { unique_id: "test.proj.t2", status: "pass" },
+          { unique_id: "test.proj.t3", status: "pass" },
+          { unique_id: "test.proj.t4", status: "fail" },
+          { unique_id: "test.proj.t5", status: "skipped" },
+          { unique_id: "model.proj.m1", status: "success" }, // not a test, ignored
+        ],
+      }),
+      "utf8",
+    );
+
+    // sources.json: 4 sources — 3 pass, 1 error
+    writeFileSync(
+      join(projTmp, "sources.json"),
+      JSON.stringify({
+        metadata: { generated_at: "2026-05-10T01:00:30Z" },
+        results: [
+          { unique_id: "source.proj.s.t1", status: "pass" },
+          { unique_id: "source.proj.s.t2", status: "pass" },
+          { unique_id: "source.proj.s.t3", status: "pass" },
+          { unique_id: "source.proj.s.t4", status: "error" },
+        ],
+      }),
+      "utf8",
+    );
+
+    slaTmp = join(projTmp, "sla_config.yml");
+    writeFileSync(
+      slaTmp,
+      `dbt_sla:\n  test_pass_pct: 75.0\n  freshness_pass_pct: 80.0\n`,
+      "utf8",
+    );
+  });
+
+  afterAll(() => {
+    if (projTmp) rmSync(projTmp, { recursive: true, force: true });
+  });
+
+  it("computes test/freshness pass rates and compares to SLA targets", async () => {
+    process.env.DBT_SLA_CONFIG_PATH = slaTmp;
+    const { dbtSlaStatus } = await import("../src/tools/aggregations.js");
+    const r = (await dbtSlaStatus({})) as {
+      slaConfigPath: string;
+      testStatus: { passPct: number; target: number; meeting: boolean; totalTests: number; passedTests: number; failedTests: number; skippedTests: number; invocationId: string };
+      freshnessStatus: { passPct: number; target: number; meeting: boolean; totalSources: number; passedSources: number; failedSources: number };
+      caveats: string[];
+    };
+
+    // 3 pass / 4 total (skipped excluded) = 75.0% — exactly meets 75 target
+    expect(r.testStatus.totalTests).toBe(4);
+    expect(r.testStatus.passedTests).toBe(3);
+    expect(r.testStatus.failedTests).toBe(1);
+    expect(r.testStatus.skippedTests).toBe(1);
+    expect(r.testStatus.passPct).toBe(75);
+    expect(r.testStatus.target).toBe(75);
+    expect(r.testStatus.meeting).toBe(true);
+    expect(r.testStatus.invocationId).toBe("inv-test-001");
+
+    // 3 pass / 4 total = 75.0% — misses 80 target
+    expect(r.freshnessStatus.totalSources).toBe(4);
+    expect(r.freshnessStatus.passedSources).toBe(3);
+    expect(r.freshnessStatus.failedSources).toBe(1);
+    expect(r.freshnessStatus.passPct).toBe(75);
+    expect(r.freshnessStatus.target).toBe(80);
+    expect(r.freshnessStatus.meeting).toBe(false);
+
+    expect(r.slaConfigPath).toBe(slaTmp);
+  });
+
+  it("returns null target/meeting and warns in caveats when DBT_SLA_CONFIG_PATH is unset", async () => {
+    const { dbtSlaStatus } = await import("../src/tools/aggregations.js");
+    const r = (await dbtSlaStatus({})) as {
+      testStatus: { target: number | null; meeting: boolean | null; passPct: number };
+      freshnessStatus: { target: number | null; meeting: boolean | null };
+      slaConfigPath: string | null;
+      caveats: string[];
+    };
+    expect(r.testStatus.target).toBeNull();
+    expect(r.testStatus.meeting).toBeNull();
+    expect(r.testStatus.passPct).toBe(75);
+    expect(r.freshnessStatus.target).toBeNull();
+    expect(r.freshnessStatus.meeting).toBeNull();
+    expect(r.slaConfigPath).toBeNull();
+    expect(r.caveats.some((c) => c.includes("DBT_SLA_CONFIG_PATH not set"))).toBe(true);
+  });
+
+  it("flags missing dbt_sla fields individually when only one is configured", async () => {
+    const partialPath = join(projTmp, "sla_partial.yml");
+    writeFileSync(partialPath, `dbt_sla:\n  test_pass_pct: 90.0\n`, "utf8");
+    process.env.DBT_SLA_CONFIG_PATH = partialPath;
+    const { dbtSlaStatus } = await import("../src/tools/aggregations.js");
+    const r = (await dbtSlaStatus({})) as {
+      testStatus: { target: number | null; meeting: boolean | null };
+      freshnessStatus: { target: number | null; meeting: boolean | null };
+      caveats: string[];
+    };
+    expect(r.testStatus.target).toBe(90);
+    expect(r.testStatus.meeting).toBe(false); // 75 < 90
+    expect(r.freshnessStatus.target).toBeNull();
+    expect(r.freshnessStatus.meeting).toBeNull();
+    expect(r.caveats.some((c) => c.includes("freshness_pass_pct not configured"))).toBe(true);
+  });
+
+  it("returns null testStatus and adds caveat when run_results.json is missing", async () => {
+    rmSync(join(projTmp, "run_results.json"));
+    process.env.DBT_SLA_CONFIG_PATH = slaTmp;
+    const { dbtSlaStatus } = await import("../src/tools/aggregations.js");
+    const r = (await dbtSlaStatus({})) as {
+      testStatus: unknown;
+      freshnessStatus: { passPct: number };
+      caveats: string[];
+    };
+    expect(r.testStatus).toBeNull();
+    expect(r.freshnessStatus.passPct).toBe(75); // freshness still computed
+    expect(r.caveats.some((c) => c.includes("run_results.json unavailable"))).toBe(true);
+  });
+});
+
 describe("dq-tier-status uses SLA config when DBT_SLA_CONFIG_PATH is set", () => {
   beforeEach(() => {
     process.env.DBT_SLA_CONFIG_PATH = slaPath;
