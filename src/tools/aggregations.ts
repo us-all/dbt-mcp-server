@@ -91,7 +91,7 @@ export async function dqScoreSnapshot(args: z.infer<typeof dqScoreSnapshotSchema
   const { trend, tier, failing } = await aggregate(
     {
       trend: () => dqScoreTrend({ days: args.days }),
-      tier: () => dqTierStatus({ fallbackMaxDays: 2 }),
+      tier: () => dqTierStatus({}),
       failing: () =>
         args.includeFailing
           ? dqListChecks({ sinceHours: args.days * 24, status: "fail", limit: 10 })

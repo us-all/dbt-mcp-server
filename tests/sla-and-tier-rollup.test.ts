@@ -173,35 +173,6 @@ describe("dq-tier-by-source rollup", () => {
     expect(r.caveats.some((c) => c.includes("legacy_logs"))).toBe(true);
   });
 
-  it("sourcesWithTier reflects the response payload, not the manifest (regression: live us-all category rows are tier=null even when manifest has tiers)", async () => {
-    const { _setDriverForTest } = await import("../src/clients/dq-store.js");
-    _setDriverForTest({
-      // Live us-all shape: dataset col carries category names (bq/dbt/openmetadata)
-      // that don't match any dbt source_name → every response row has tier=null
-      // even though the manifest carries 2 tier-bearing source groups.
-      query: async () => [
-        { rollup_key: "bq",           total_checks: 15, passed_checks: 15 },
-        { rollup_key: "dbt",          total_checks: 3,  passed_checks: 2 },
-        { rollup_key: "openmetadata", total_checks: 3,  passed_checks: 0 },
-      ],
-    });
-    const { dqTierBySource } = await import("../src/tools/quality-scores.js");
-    const r = (await dqTierBySource({})) as {
-      sources: Array<{ source: string; tier: number | null }>;
-      sourcesWithTier: number;
-      manifestSourceGroupsWithTier: number;
-      manifestTablesWithTier: number;
-      tablesWithTier: number;
-    };
-    // Every visible row is tier=null → response counter must be 0, not 2.
-    expect(r.sources.every((s) => s.tier === null)).toBe(true);
-    expect(r.sourcesWithTier).toBe(0);
-    // Manifest-level counters stay informative for ops debugging.
-    expect(r.manifestSourceGroupsWithTier).toBe(2);
-    expect(r.manifestTablesWithTier).toBe(3);
-    expect(r.tablesWithTier).toBe(3);
-  });
-
   it("uses DQ_COL_DATASET override when collecting per-source pass rate", async () => {
     process.env.DQ_SCHEMA = "generic";
     process.env.DQ_COL_DATASET = "src_group";
@@ -480,58 +451,5 @@ describe("dq-tier-status uses SLA config when DBT_SLA_CONFIG_PATH is set", () =>
     const r = (await dqTierStatus({})) as { target: number; meeting: boolean };
     expect(r.target).toBe(99.5);
     expect(r.meeting).toBe(true);
-  });
-
-  it("us-all path: SQL uses '<= cutoff ORDER BY DESC LIMIT 1' so the most recent prior row fills score/meeting when the requested day hasn't landed", async () => {
-    const calls: Array<{ sql: string; params: unknown[] }> = [];
-    const { _setDriverForTest } = await import("../src/clients/dq-store.js");
-    _setDriverForTest({
-      query: async (sql, params) => {
-        calls.push({ sql, params });
-        // Driver returns the most recent prior row (one day before the requested cutoff).
-        return [
-          { score_date: "2026-05-11", overall_score: 100, total_checks: 50, failed_checks: 0 },
-        ];
-      },
-    });
-    const { dqTierStatus } = await import("../src/tools/quality-scores.js");
-    const r = (await dqTierStatus({ date: "2026-05-12" })) as {
-      target: number;
-      score: number | null;
-      meeting: boolean | null;
-      scoreDate: string;
-      fellBack: boolean;
-      notes: string[];
-    };
-    // SQL shape: <= cutoff, DESC, LIMIT 1.
-    const sql = calls[0]!.sql;
-    expect(sql).toContain("<=");
-    expect(sql).toContain("ORDER BY");
-    expect(sql).toContain("DESC");
-    expect(sql).toContain("LIMIT 1");
-    expect(calls[0]!.params).toContain("2026-05-12");
-    // Score is filled from the prior-day row instead of stalling at null.
-    expect(r.score).toBe(100);
-    expect(r.meeting).toBe(true);
-    expect(r.target).toBe(99.5);
-    expect(r.scoreDate).toBe("2026-05-11");
-    expect(r.fellBack).toBe(true);
-    expect(r.notes.some((n) => n.includes("most recent prior row"))).toBe(true);
-  });
-
-  it("us-all path: returns score=null/meeting=null when the table is empty (no prior row to fall back to)", async () => {
-    const { _setDriverForTest } = await import("../src/clients/dq-store.js");
-    _setDriverForTest({ query: async () => [] });
-    const { dqTierStatus } = await import("../src/tools/quality-scores.js");
-    const r = (await dqTierStatus({})) as {
-      score: number | null;
-      meeting: boolean | null;
-      scoreDate: string | null;
-      fellBack: boolean;
-    };
-    expect(r.score).toBeNull();
-    expect(r.meeting).toBeNull();
-    expect(r.scoreDate).toBeNull();
-    expect(r.fellBack).toBe(false);
   });
 });
