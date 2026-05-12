@@ -47,6 +47,12 @@ export const dqTierStatusSchema = z.object({
     .string()
     .optional()
     .describe("ISO date (YYYY-MM-DD) to check, default = today"),
+  fallbackMaxDays: z
+    .coerce.number().int().min(0).max(30)
+    .default(2)
+    .describe(
+      "us-all schema only: when the cutoff date has no row, walk back to the most recent prior row only if it is within this many days. Beyond the limit, score/meeting are returned null with a stale note instead of silently passing SLA with stale data. Default 2.",
+    ),
 });
 
 export async function dqTierStatus(args: z.infer<typeof dqTierStatusSchema>): Promise<unknown> {
@@ -86,36 +92,75 @@ export async function dqTierStatus(args: z.infer<typeof dqTierStatusSchema>): Pr
     return { backend: result.backend, schema: flavor, rowsExamined: result.rowCount, tiers: summary, rows: result.rows };
   }
 
-  // us-all flavor: no per-scope tier column. Fetch latest single row and
-  // compare overall_score vs DQ_TIER1_TARGET_PCT (default 99.5).
+  // us-all flavor: no per-scope tier column. Fetch the most recent row at or
+  // before the requested date (today if unspecified) and compare its
+  // overall_score against DQ_TIER1_TARGET_PCT (default 99.5). The "<= cutoff
+  // ORDER BY DESC LIMIT 1" form silently falls back to the previous run when
+  // today's score row hasn't landed yet — keeps `meeting` answerable instead
+  // of stalling at null whenever the daily aggregator is mid-window.
   const useDate = args.date ?? null;
   const todayClause = backend === "bigquery" ? "CURRENT_DATE()" : "CURRENT_DATE";
-  const sql = useDate
-    ? `
-      SELECT ${cols.scoreDate} AS score_date, overall_score, total_checks, failed_checks
-      FROM ${scoreTable()}
-      WHERE ${cols.scoreDate} = ?`
-    : `
-      SELECT ${cols.scoreDate} AS score_date, overall_score, total_checks, failed_checks
-      FROM ${scoreTable()}
-      WHERE ${cols.scoreDate} = ${todayClause}`;
+  const cutoffExpr = useDate ? "?" : todayClause;
+  const sql = `
+    SELECT ${cols.scoreDate} AS score_date, overall_score, total_checks, failed_checks
+    FROM ${scoreTable()}
+    WHERE ${cols.scoreDate} <= ${cutoffExpr}
+    ORDER BY ${cols.scoreDate} DESC
+    LIMIT 1`;
   const result = await dqQuery(sql, useDate ? [useDate] : []);
   const target = defaultTier1TargetPct();
   const row = result.rows[0];
-  const score = row ? Number(row.overall_score ?? 0) : null;
+  const actualDate = row?.score_date ?? null;
+  const requestedDate = useDate ?? "today";
+
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const cutoffIso = useDate ?? todayIso;
+  const actualIso = actualDate ? new Date(actualDate as string | Date).toISOString().slice(0, 10) : null;
+  const daysBehind =
+    actualIso
+      ? Math.max(
+          0,
+          Math.floor(
+            (Date.parse(cutoffIso + "T00:00:00Z") - Date.parse(actualIso + "T00:00:00Z")) /
+              86400000,
+          ),
+        )
+      : null;
+  const fellBack = row != null && daysBehind != null && daysBehind > 0;
+  const stale = daysBehind != null && daysBehind > args.fallbackMaxDays;
+
+  const rawScore = row?.overall_score != null ? Number(row.overall_score) : null;
+  const score = stale ? null : rawScore;
   const meeting = score == null ? null : score >= target;
+
+  const notes: string[] = [];
+  if (fellBack && !stale) {
+    notes.push(
+      `No row for ${requestedDate}; using most recent prior row (${actualIso}, ${daysBehind} day(s) behind).`,
+    );
+  }
+  if (stale) {
+    notes.push(
+      `Most recent row (${actualIso}) is ${daysBehind} day(s) behind cutoff ${cutoffIso}, exceeding fallbackMaxDays=${args.fallbackMaxDays}. Returning score/meeting=null to avoid silent SLA pass on stale data.`,
+    );
+  }
+  notes.push(
+    `${flavor} schema has a single overall_score per day (no per-scope tiers). Comparing against tier-1 target ${target}% (DBT_SLA_CONFIG_PATH > DQ_TIER1_TARGET_PCT > 99.5).`,
+  );
   return {
     backend: result.backend,
     schema: flavor,
     target,
     score,
     meeting,
-    totalChecks: row?.total_checks ?? null,
-    failedChecks: row?.failed_checks ?? null,
-    scoreDate: row?.score_date ?? null,
-    notes: [
-      `${flavor} schema has a single overall_score per day (no per-scope tiers). Comparing against tier-1 target ${target}% (DBT_SLA_CONFIG_PATH > DQ_TIER1_TARGET_PCT > 99.5).`,
-    ],
+    totalChecks: stale ? null : row?.total_checks ?? null,
+    failedChecks: stale ? null : row?.failed_checks ?? null,
+    scoreDate: actualDate,
+    fellBack,
+    stale,
+    daysBehind,
+    fallbackMaxDays: args.fallbackMaxDays,
+    notes,
   };
 }
 
@@ -275,6 +320,13 @@ export async function dqTierBySource(args: z.infer<typeof dqTierBySourceSchema>)
     );
   }
 
+  // `sourcesWithTier` reports the response itself: how many rows in `sources`
+  // came back with a tier match. Pre-v0.4.2 this returned the manifest source
+  // group count instead, which silently disagreed with the visible payload
+  // (e.g. mode='source' could surface 4 tier=null rows while the counter read
+  // 2). The manifest-level totals are still useful for ops debugging and are
+  // kept on `manifestSourceGroupsWithTier` / `manifestTablesWithTier`.
+  const sourcesWithTier = sources.filter((s) => s.tier != null).length;
   return {
     backend: result.backend,
     schema: flavor,
@@ -283,7 +335,9 @@ export async function dqTierBySource(args: z.infer<typeof dqTierBySourceSchema>)
     sources,
     tierRollup,
     caveats,
-    sourcesWithTier: Object.keys(sourceTier).length,
+    sourcesWithTier,
     tablesWithTier: Object.keys(tableTier).length,
+    manifestSourceGroupsWithTier: Object.keys(sourceTier).length,
+    manifestTablesWithTier: Object.keys(tableTier).length,
   };
 }
