@@ -86,24 +86,39 @@ export async function dqTierStatus(args: z.infer<typeof dqTierStatusSchema>): Pr
     return { backend: result.backend, schema: flavor, rowsExamined: result.rowCount, tiers: summary, rows: result.rows };
   }
 
-  // us-all flavor: no per-scope tier column. Fetch latest single row and
-  // compare overall_score vs DQ_TIER1_TARGET_PCT (default 99.5).
+  // us-all flavor: no per-scope tier column. Fetch the most recent row at or
+  // before the requested date (today if unspecified) and compare its
+  // overall_score against DQ_TIER1_TARGET_PCT (default 99.5). The "<= cutoff
+  // ORDER BY DESC LIMIT 1" form silently falls back to the previous run when
+  // today's score row hasn't landed yet — keeps `meeting` answerable instead
+  // of stalling at null whenever the daily aggregator is mid-window.
   const useDate = args.date ?? null;
   const todayClause = backend === "bigquery" ? "CURRENT_DATE()" : "CURRENT_DATE";
-  const sql = useDate
-    ? `
-      SELECT ${cols.scoreDate} AS score_date, overall_score, total_checks, failed_checks
-      FROM ${scoreTable()}
-      WHERE ${cols.scoreDate} = ?`
-    : `
-      SELECT ${cols.scoreDate} AS score_date, overall_score, total_checks, failed_checks
-      FROM ${scoreTable()}
-      WHERE ${cols.scoreDate} = ${todayClause}`;
+  const cutoffExpr = useDate ? "?" : todayClause;
+  const sql = `
+    SELECT ${cols.scoreDate} AS score_date, overall_score, total_checks, failed_checks
+    FROM ${scoreTable()}
+    WHERE ${cols.scoreDate} <= ${cutoffExpr}
+    ORDER BY ${cols.scoreDate} DESC
+    LIMIT 1`;
   const result = await dqQuery(sql, useDate ? [useDate] : []);
   const target = defaultTier1TargetPct();
   const row = result.rows[0];
-  const score = row ? Number(row.overall_score ?? 0) : null;
+  const score = row?.overall_score != null ? Number(row.overall_score) : null;
   const meeting = score == null ? null : score >= target;
+  const actualDate = row?.score_date ?? null;
+  const requestedDate = useDate ?? "today";
+  const fellBack =
+    row != null && useDate != null && String(actualDate).slice(0, 10) !== useDate;
+  const notes: string[] = [];
+  if (fellBack) {
+    notes.push(
+      `No row for ${requestedDate}; using most recent prior row (${actualDate}).`,
+    );
+  }
+  notes.push(
+    `${flavor} schema has a single overall_score per day (no per-scope tiers). Comparing against tier-1 target ${target}% (DBT_SLA_CONFIG_PATH > DQ_TIER1_TARGET_PCT > 99.5).`,
+  );
   return {
     backend: result.backend,
     schema: flavor,
@@ -112,10 +127,9 @@ export async function dqTierStatus(args: z.infer<typeof dqTierStatusSchema>): Pr
     meeting,
     totalChecks: row?.total_checks ?? null,
     failedChecks: row?.failed_checks ?? null,
-    scoreDate: row?.score_date ?? null,
-    notes: [
-      `${flavor} schema has a single overall_score per day (no per-scope tiers). Comparing against tier-1 target ${target}% (DBT_SLA_CONFIG_PATH > DQ_TIER1_TARGET_PCT > 99.5).`,
-    ],
+    scoreDate: actualDate,
+    fellBack,
+    notes,
   };
 }
 
@@ -275,6 +289,13 @@ export async function dqTierBySource(args: z.infer<typeof dqTierBySourceSchema>)
     );
   }
 
+  // `sourcesWithTier` reports the response itself: how many rows in `sources`
+  // came back with a tier match. Pre-v0.4.2 this returned the manifest source
+  // group count instead, which silently disagreed with the visible payload
+  // (e.g. mode='source' could surface 4 tier=null rows while the counter read
+  // 2). The manifest-level totals are still useful for ops debugging and are
+  // kept on `manifestSourceGroupsWithTier` / `manifestTablesWithTier`.
+  const sourcesWithTier = sources.filter((s) => s.tier != null).length;
   return {
     backend: result.backend,
     schema: flavor,
@@ -283,7 +304,9 @@ export async function dqTierBySource(args: z.infer<typeof dqTierBySourceSchema>)
     sources,
     tierRollup,
     caveats,
-    sourcesWithTier: Object.keys(sourceTier).length,
+    sourcesWithTier,
     tablesWithTier: Object.keys(tableTier).length,
+    manifestSourceGroupsWithTier: Object.keys(sourceTier).length,
+    manifestTablesWithTier: Object.keys(tableTier).length,
   };
 }
