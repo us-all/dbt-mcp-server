@@ -47,6 +47,12 @@ export const dqTierStatusSchema = z.object({
     .string()
     .optional()
     .describe("ISO date (YYYY-MM-DD) to check, default = today"),
+  fallbackMaxDays: z
+    .coerce.number().int().min(0).max(30)
+    .default(2)
+    .describe(
+      "us-all schema only: when the cutoff date has no row, walk back to the most recent prior row only if it is within this many days. Beyond the limit, score/meeting are returned null with a stale note instead of silently passing SLA with stale data. Default 2.",
+    ),
 });
 
 export async function dqTierStatus(args: z.infer<typeof dqTierStatusSchema>): Promise<unknown> {
@@ -104,16 +110,38 @@ export async function dqTierStatus(args: z.infer<typeof dqTierStatusSchema>): Pr
   const result = await dqQuery(sql, useDate ? [useDate] : []);
   const target = defaultTier1TargetPct();
   const row = result.rows[0];
-  const score = row?.overall_score != null ? Number(row.overall_score) : null;
-  const meeting = score == null ? null : score >= target;
   const actualDate = row?.score_date ?? null;
   const requestedDate = useDate ?? "today";
-  const fellBack =
-    row != null && useDate != null && String(actualDate).slice(0, 10) !== useDate;
+
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const cutoffIso = useDate ?? todayIso;
+  const actualIso = actualDate ? new Date(actualDate as string | Date).toISOString().slice(0, 10) : null;
+  const daysBehind =
+    actualIso
+      ? Math.max(
+          0,
+          Math.floor(
+            (Date.parse(cutoffIso + "T00:00:00Z") - Date.parse(actualIso + "T00:00:00Z")) /
+              86400000,
+          ),
+        )
+      : null;
+  const fellBack = row != null && daysBehind != null && daysBehind > 0;
+  const stale = daysBehind != null && daysBehind > args.fallbackMaxDays;
+
+  const rawScore = row?.overall_score != null ? Number(row.overall_score) : null;
+  const score = stale ? null : rawScore;
+  const meeting = score == null ? null : score >= target;
+
   const notes: string[] = [];
-  if (fellBack) {
+  if (fellBack && !stale) {
     notes.push(
-      `No row for ${requestedDate}; using most recent prior row (${actualDate}).`,
+      `No row for ${requestedDate}; using most recent prior row (${actualIso}, ${daysBehind} day(s) behind).`,
+    );
+  }
+  if (stale) {
+    notes.push(
+      `Most recent row (${actualIso}) is ${daysBehind} day(s) behind cutoff ${cutoffIso}, exceeding fallbackMaxDays=${args.fallbackMaxDays}. Returning score/meeting=null to avoid silent SLA pass on stale data.`,
     );
   }
   notes.push(
@@ -125,10 +153,13 @@ export async function dqTierStatus(args: z.infer<typeof dqTierStatusSchema>): Pr
     target,
     score,
     meeting,
-    totalChecks: row?.total_checks ?? null,
-    failedChecks: row?.failed_checks ?? null,
+    totalChecks: stale ? null : row?.total_checks ?? null,
+    failedChecks: stale ? null : row?.failed_checks ?? null,
     scoreDate: actualDate,
     fellBack,
+    stale,
+    daysBehind,
+    fallbackMaxDays: args.fallbackMaxDays,
     notes,
   };
 }
