@@ -24,6 +24,7 @@ export async function dbtListSources(args: z.infer<typeof dbtListSourcesSchema>)
       loader: src.loader,
       loadedAtField: src.loaded_at_field,
       hasFreshness: !!src.freshness?.error_after || !!src.freshness?.warn_after,
+      meta: src.meta ?? {},
       tags: src.tags ?? [],
     });
     if (out.length >= args.limit) break;
@@ -84,6 +85,7 @@ export async function dbtGetSource(args: z.infer<typeof dbtGetSourceSchema>): Pr
     sourceDescription: src.source_description,
     freshness: src.freshness,
     columns: src.columns ? Object.values(src.columns) : [],
+    meta: src.meta ?? {},
     tags: src.tags ?? [],
     freshnessResult,
   };

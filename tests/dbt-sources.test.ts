@@ -7,25 +7,28 @@ beforeAll(() => {
 });
 
 describe("dbt-sources", () => {
-  it("dbt-list-sources returns sources with hasFreshness flag", async () => {
+  it("dbt-list-sources returns sources with hasFreshness flag and meta", async () => {
     const { dbtListSources } = await import("../src/tools/dbt-sources.js");
     const r = (await dbtListSources({ limit: 100 })) as {
       count: number;
-      sources: { sourceName: string; tableName: string; hasFreshness: boolean }[];
+      sources: { sourceName: string; tableName: string; hasFreshness: boolean; meta: Record<string, unknown> }[];
     };
     expect(r.count).toBe(1);
     expect(r.sources[0]?.hasFreshness).toBe(true);
+    expect(r.sources[0]?.meta?.tier).toBe(1);
   });
 
-  it("dbt-get-source surfaces freshness criteria + sources.json result", async () => {
+  it("dbt-get-source surfaces freshness criteria + sources.json result + meta", async () => {
     const { dbtGetSource } = await import("../src/tools/dbt-sources.js");
     const r = (await dbtGetSource({ sourceName: "raw", tableName: "users" })) as {
       freshness: { error_after?: { count: number } };
       freshnessResult: { status: string; ageInSeconds: number };
+      meta: Record<string, unknown>;
     };
     expect(r.freshness.error_after?.count).toBe(24);
     expect(r.freshnessResult.status).toBe("warn");
     expect(r.freshnessResult.ageInSeconds).toBeGreaterThan(43200);
+    expect(r.meta?.tier).toBe(1);
   });
 
   it("dbt-list-exposures returns declared exposures", async () => {
