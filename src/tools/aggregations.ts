@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { aggregate } from "@us-all/mcp-toolkit";
+import { aggregate, extractFieldsDescription } from "@us-all/mcp-toolkit";
 import { dbtFailedTests } from "./dbt-runs.js";
 import { dqFailedChecksByDataset, dqListChecks } from "./quality-results.js";
 import { dqScoreTrend, dqTierStatus } from "./quality-scores.js";
@@ -9,9 +9,12 @@ import { loadManifest, loadRunResults, loadSources } from "../clients/dbt-artifa
 import { dqConfigured } from "../config.js";
 import { loadSlaConfig } from "../clients/sla-config.js";
 
+const ef = z.string().optional().describe(extractFieldsDescription);
+
 export const failedTestsSummarySchema = z.object({
   recentRuns: z.coerce.number().int().min(1).max(20).default(3).describe("Look at last N dbt runs"),
   sinceHours: z.coerce.number().int().min(1).max(720).default(24).describe("Recent window for DQ checks"),
+  extractFields: ef,
 });
 
 export async function failedTestsSummary(
@@ -44,6 +47,7 @@ export async function failedTestsSummary(
 
 export const freshnessStatusSchema = z.object({
   failingOnly: z.boolean().default(false).describe("Only return sources where freshness is warn/error"),
+  extractFields: ef,
 });
 
 export async function freshnessStatus(args: z.infer<typeof freshnessStatusSchema>): Promise<unknown> {
@@ -84,6 +88,7 @@ export async function freshnessStatus(args: z.infer<typeof freshnessStatusSchema
 export const dqScoreSnapshotSchema = z.object({
   days: z.coerce.number().int().min(1).max(90).default(7),
   includeFailing: z.boolean().default(true).describe("Also include the most recent failing checks"),
+  extractFields: ef,
 });
 
 export async function dqScoreSnapshot(args: z.infer<typeof dqScoreSnapshotSchema>): Promise<unknown> {
@@ -102,7 +107,9 @@ export async function dqScoreSnapshot(args: z.infer<typeof dqScoreSnapshotSchema
   return { days: args.days, trend, tier, failingTop: failing, caveats };
 }
 
-export const dbtSlaStatusSchema = z.object({});
+export const dbtSlaStatusSchema = z.object({
+  extractFields: ef,
+});
 
 export async function dbtSlaStatus(_args: z.infer<typeof dbtSlaStatusSchema>): Promise<unknown> {
   const caveats: string[] = [];
@@ -218,6 +225,7 @@ export const incidentContextSchema = z.object({
   modelName: z.string().optional().describe("dbt model name to anchor on (provide modelName OR sourceFqn)"),
   sourceFqn: z.string().optional().describe("'source_name.table_name' to anchor on a source instead of a model"),
   sinceHours: z.coerce.number().int().min(1).max(168).default(48),
+  extractFields: ef,
 });
 
 export async function incidentContext(args: z.infer<typeof incidentContextSchema>): Promise<unknown> {

@@ -1,13 +1,17 @@
 import { z } from "zod";
+import { extractFieldsDescription } from "@us-all/mcp-toolkit";
 import { dqQuery, scoreTable, resultsTable } from "../clients/dq-store.js";
 import { getDqColumns, getDqFlavor, hasScope, defaultTier1TargetPct, tableTimeWindowSql } from "../clients/dq-schema.js";
 import { getTierTargets } from "../clients/sla-config.js";
 import { loadManifest } from "../clients/dbt-artifacts.js";
 import { config } from "../config.js";
 
+const ef = z.string().optional().describe(extractFieldsDescription);
+
 export const dqScoreTrendSchema = z.object({
   days: z.coerce.number().int().min(1).max(365).default(14),
   scope: z.string().optional().describe("Scope filter (only honored when DQ_SCHEMA=generic)"),
+  extractFields: ef,
 });
 
 export async function dqScoreTrend(args: z.infer<typeof dqScoreTrendSchema>): Promise<unknown> {
@@ -53,6 +57,7 @@ export const dqTierStatusSchema = z.object({
     .describe(
       "us-all schema only: when the cutoff date has no row, walk back to the most recent prior row only if it is within this many days. Beyond the limit, score/meeting are returned null with a stale note instead of silently passing SLA with stale data. Default 2.",
     ),
+  extractFields: ef,
 });
 
 export async function dqTierStatus(args: z.infer<typeof dqTierStatusSchema>): Promise<unknown> {
@@ -185,6 +190,7 @@ export const dqTierBySourceSchema = z.object({
     .describe(
       "Optional pre-filter on the dataset/source column. Useful in mode='table' when only some source rows have target_name in '<source_group>.<table>' format (e.g. sourceFilter='bq' to keep only the BigQuery-shaped rows).",
     ),
+  extractFields: ef,
 });
 
 export async function dqTierBySource(args: z.infer<typeof dqTierBySourceSchema>): Promise<unknown> {

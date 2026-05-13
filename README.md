@@ -9,6 +9,7 @@ For DAG triggering / run history / log tails, install the companion **[@us-all/a
 - 27 tools across 3 categories (`dbt`, `quality`, `meta`) — 21 primitive tools + 5 aggregations + 1 meta
 - 4 MCP Prompts for triage workflows
 - 5 aggregation tools that replace 3-5 round-trips of "list / get / list"
+- `extractFields` response projection on high-volume reads
 - Read-only by default
 - Hybrid backend: BigQuery (default) or Postgres for DQ result tables — both peer-imported lazily
 
@@ -69,16 +70,16 @@ Toggle with `DBT_TOOLS=dbt` (allowlist) or `DBT_DISABLE=quality` (denylist).
 | `DBT_TARGET_DIR`  | no  | Defaults to `$DBT_PROJECT_DIR/target` |
 | `DBT_RUN_HISTORY_DIR` | no | Optional dir for archived `run_results.json` history |
 | `DQ_BACKEND` | no | `bigquery` (default) or `postgres` |
-| `DQ_RESULTS_TABLE` | no | FQN of the checks table (without it, `quality` category errors at call time) |
-| `DQ_SCORE_TABLE` | no | FQN of the score-daily table |
+| `DQ_RESULTS_TABLE` | no | FQN of the checks table; required only for checks-based quality tools |
+| `DQ_SCORE_TABLE` | no | FQN of the score-daily table; required for score-only tools |
 | `GOOGLE_APPLICATION_CREDENTIALS` | no | For BigQuery backend (ADC fallback supported) |
 | `BQ_PROJECT_ID` | no | Explicit BQ project (otherwise inferred from ADC) |
 | `PG_CONNECTION_STRING` | no | When `DQ_BACKEND=postgres` (secret) |
 | `DQ_SCHEMA` | no | `generic` (default) or `us-all` — base schema preset for the `quality` category |
-| `DQ_COL_*` | no | Per-column overrides on top of `DQ_SCHEMA` (see below). Lets you point at any DQ schema without writing a SQL view. |
+| `DQ_COL_*` | no | Per-column overrides on top of `DQ_SCHEMA` (see below). Overrides must be simple SQL identifiers. |
 | `DQ_TIER1_TARGET_PCT` | no | Tier 1 SLA threshold for `dq-tier-status` when no `tier` column is configured (default 99.5). Superseded by `DBT_SLA_CONFIG_PATH` `tier_sla.1` if both are set. |
 | `DBT_SLA_CONFIG_PATH` | no | Optional YAML path with `tier_sla` and `dbt_sla` blocks. Drives `dq-tier-status` thresholds and `dq-tier-by-source` per-tier targets. Mtime cached. |
-| `DBT_ALLOW_WRITE` | no | Reserved for future write tools (none in v0.1) |
+| `DBT_ALLOW_WRITE` | no | Reserved for future write tools (none currently) |
 | `DBT_TOOLS` / `DBT_DISABLE` | no | Category toggles |
 
 ## DQ result-table schema flavors
@@ -108,6 +109,8 @@ In this flavor `quality_score_daily` is one row per day (no per-scope rollup, no
 ### Per-column overrides — `DQ_COL_*`
 
 If your DQ tables don't match either preset, layer per-column overrides on top of `DQ_SCHEMA`. Any `DQ_COL_*` env var, when set, replaces the preset value for that single column. Unset vars keep the preset default.
+
+Overrides are validated as simple SQL identifiers to avoid injecting raw SQL through environment variables. Table names in `DQ_RESULTS_TABLE` / `DQ_SCORE_TABLE` are also validated and quoted for the configured backend.
 
 | Env var | Logical concept | Generic preset | us-all preset |
 |---------|-----------------|----------------|---------------|

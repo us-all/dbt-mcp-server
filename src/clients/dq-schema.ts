@@ -85,12 +85,20 @@ const US_ALL_PRESET: DqColumnMap = {
 };
 
 const NULL_SENTINELS = new Set(["none", "null", "-"]);
+const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_$]*$/;
+
+function validateEnvIdentifier(envName: string, value: string): string {
+  if (!IDENTIFIER.test(value)) {
+    throw new Error(`${envName} must be a simple SQL identifier; got '${value}'`);
+  }
+  return value;
+}
 
 function envCol(name: string, fallback: string): string {
   const raw = process.env[name];
   if (!raw) return fallback;
   const trimmed = raw.trim();
-  return trimmed || fallback;
+  return trimmed ? validateEnvIdentifier(name, trimmed) : fallback;
 }
 
 function envColNullable(name: string, fallback: string | null): string | null {
@@ -99,7 +107,7 @@ function envColNullable(name: string, fallback: string | null): string | null {
   const trimmed = raw.trim();
   if (!trimmed) return fallback;
   if (NULL_SENTINELS.has(trimmed.toLowerCase())) return null;
-  return trimmed;
+  return validateEnvIdentifier(name, trimmed);
 }
 
 export function getDqColumns(flavor: DqFlavor = getDqFlavor()): DqColumnMap {

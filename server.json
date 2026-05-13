@@ -6,12 +6,12 @@
     "url": "https://github.com/us-all/dbt-mcp-server",
     "source": "github"
   },
-  "version": "0.4.0",
+  "version": "1.0.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@us-all/dbt-mcp",
-      "version": "0.4.0",
+      "version": "1.0.0",
       "transport": {
         "type": "stdio"
       },

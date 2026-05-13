@@ -1,5 +1,8 @@
 import { z } from "zod";
+import { extractFieldsDescription } from "@us-all/mcp-toolkit";
 import { loadManifest, loadRunResults, type DbtNode } from "../clients/dbt-artifacts.js";
+
+const ef = z.string().optional().describe(extractFieldsDescription);
 
 function isTest(node: DbtNode): boolean {
   return node.resource_type === "test";
@@ -13,6 +16,7 @@ export const dbtListTestsSchema = z.object({
   testKind: z.enum(["generic", "singular", "all"]).default("all"),
   search: z.string().optional().describe("Substring match against test name"),
   limit: z.coerce.number().int().min(1).max(2000).default(500),
+  extractFields: ef,
 });
 
 export async function dbtListTests(args: z.infer<typeof dbtListTestsSchema>): Promise<unknown> {
@@ -52,6 +56,7 @@ export async function dbtListTests(args: z.infer<typeof dbtListTestsSchema>): Pr
 
 export const dbtGetTestSchema = z.object({
   uniqueId: z.string().describe("dbt unique_id of the test (e.g. 'test.proj.unique_users_id')"),
+  extractFields: ef,
 });
 
 export async function dbtGetTest(args: z.infer<typeof dbtGetTestSchema>): Promise<unknown> {

@@ -68,7 +68,6 @@ async function main() {
 
   const tools = await send("tools/list", {});
   console.log(`tools/list returned ${tools.tools.length} tools`);
-  const expected = 32; // 15 dbt + 5 quality + 6 airflow + 4 agg (in quality) + 1 search + 1 = 32
   if (tools.tools.length < 25) {
     console.error("Smoke test failed: too few tools registered");
     process.exit(1);
@@ -95,18 +94,6 @@ async function main() {
       console.log("dq-list-checks OK:", r.content?.[0]?.text?.slice(0, 120) + "...");
     } catch (err) {
       console.warn("dq-list-checks failed (acceptable if backend not ready):", err.message);
-    }
-  }
-
-  if (process.env.AIRFLOW_API_URL) {
-    try {
-      const r = await send("tools/call", {
-        name: "airflow-list-dags",
-        arguments: { onlyActive: true, limit: 5 },
-      });
-      console.log("airflow-list-dags OK:", r.content?.[0]?.text?.slice(0, 120) + "...");
-    } catch (err) {
-      console.warn("airflow-list-dags failed (acceptable if no tunnel):", err.message);
     }
   }
 

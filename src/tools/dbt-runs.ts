@@ -1,8 +1,12 @@
 import { z } from "zod";
+import { extractFieldsDescription } from "@us-all/mcp-toolkit";
 import { loadRunResults, listRunHistory } from "../clients/dbt-artifacts.js";
+
+const ef = z.string().optional().describe(extractFieldsDescription);
 
 export const dbtListRunsSchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(20),
+  extractFields: ef,
 });
 
 export async function dbtListRuns(args: z.infer<typeof dbtListRunsSchema>): Promise<unknown> {
@@ -36,6 +40,7 @@ export const dbtGetRunResultsSchema = z.object({
     .optional()
     .describe("Filter results by status (pass | error | fail | skipped | runtime error | success)"),
   limit: z.coerce.number().int().min(1).max(5000).default(500),
+  extractFields: ef,
 });
 
 export async function dbtGetRunResults(
@@ -72,6 +77,7 @@ export async function dbtGetRunResults(
 
 export const dbtFailedTestsSchema = z.object({
   recentRuns: z.coerce.number().int().min(1).max(50).default(5).describe("Look at last N runs"),
+  extractFields: ef,
 });
 
 export async function dbtFailedTests(args: z.infer<typeof dbtFailedTestsSchema>): Promise<unknown> {
@@ -117,6 +123,7 @@ export async function dbtFailedTests(args: z.infer<typeof dbtFailedTestsSchema>)
 export const dbtSlowModelsSchema = z.object({
   topN: z.coerce.number().int().min(1).max(100).default(20),
   invocationId: z.string().optional().describe("Use a specific run; default is latest"),
+  extractFields: ef,
 });
 
 export async function dbtSlowModels(args: z.infer<typeof dbtSlowModelsSchema>): Promise<unknown> {

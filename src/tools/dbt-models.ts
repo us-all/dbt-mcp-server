@@ -1,10 +1,13 @@
 import { z } from "zod";
+import { extractFieldsDescription } from "@us-all/mcp-toolkit";
 import {
   loadManifest,
   loadCatalog,
   manifestSchemaSupported,
   type DbtNode,
 } from "../clients/dbt-artifacts.js";
+
+const ef = z.string().optional().describe(extractFieldsDescription);
 
 function isModel(node: DbtNode): boolean {
   return node.resource_type === "model";
@@ -22,6 +25,7 @@ export const dbtListModelsSchema = z.object({
   schema: z.string().optional().describe("Filter by destination schema/dataset"),
   search: z.string().optional().describe("Substring match against model name (case-insensitive)"),
   limit: z.coerce.number().int().min(1).max(2000).default(200).describe("Max rows to return"),
+  extractFields: ef,
 });
 
 export async function dbtListModels(args: z.infer<typeof dbtListModelsSchema>): Promise<unknown> {
@@ -61,6 +65,7 @@ export const dbtGetModelSchema = z.object({
   uniqueId: z.string().optional().describe("dbt unique_id (e.g. 'model.us_dbt.users_dim')"),
   name: z.string().optional().describe("Model name (resolved if uniqueId not provided)"),
   includeCompiledSql: z.boolean().default(false).describe("Include compiled_code in response"),
+  extractFields: ef,
 });
 
 export async function dbtGetModel(args: z.infer<typeof dbtGetModelSchema>): Promise<unknown> {
@@ -132,6 +137,7 @@ export const dbtGraphSchema = z.object({
   name: z.string().optional().describe("Model name (resolved if uniqueId not provided)"),
   upstreamDepth: z.coerce.number().int().min(0).max(10).default(2),
   downstreamDepth: z.coerce.number().int().min(0).max(10).default(2),
+  extractFields: ef,
 });
 
 export async function dbtGraph(args: z.infer<typeof dbtGraphSchema>): Promise<unknown> {
@@ -182,6 +188,7 @@ export async function dbtGraph(args: z.infer<typeof dbtGraphSchema>): Promise<un
 export const dbtCoverageSchema = z.object({
   uniqueId: z.string().optional().describe("dbt unique_id"),
   name: z.string().optional().describe("Model name (resolved if uniqueId not provided)"),
+  extractFields: ef,
 });
 
 export async function dbtCoverage(args: z.infer<typeof dbtCoverageSchema>): Promise<unknown> {

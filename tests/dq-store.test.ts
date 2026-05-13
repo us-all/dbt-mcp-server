@@ -81,6 +81,51 @@ describe("dq-store driver injection (generic schema)", () => {
     expect(r.tiers["1"]?.missing).toBe(1);
     expect(r.tiers["2"]?.meeting).toBe(1);
   });
+
+  it("score-only tools do not require DQ_RESULTS_TABLE when DQ_SCORE_TABLE is set", async () => {
+    delete process.env.DQ_RESULTS_TABLE;
+    process.env.DQ_SCORE_TABLE = "example-project.data_ops.quality_score_daily";
+    vi.resetModules();
+    const { _setDriverForTest } = await import("../src/clients/dq-store.js");
+    _setDriverForTest({
+      query: async () => [
+        { score_date: "2026-05-07", scope: "core", overall_score: 99.6 },
+      ],
+    });
+    const { dqScoreTrend } = await import("../src/tools/quality-scores.js");
+    const r = (await dqScoreTrend({ days: 7 })) as { rows: unknown[]; schema: string };
+    expect(r.schema).toBe("generic");
+    expect(r.rows.length).toBe(1);
+  });
+
+  it("checks-based tools still require DQ_RESULTS_TABLE", async () => {
+    delete process.env.DQ_RESULTS_TABLE;
+    vi.resetModules();
+    const { _setDriverForTest } = await import("../src/clients/dq-store.js");
+    _setDriverForTest({ query: async () => [] });
+    const { dqListChecks } = await import("../src/tools/quality-results.js");
+    await expect(dqListChecks({ sinceHours: 24, limit: 10 })).rejects.toThrow(/DQ_RESULTS_TABLE/);
+  });
+
+  it("rejects unsafe DQ table identifiers before query execution", async () => {
+    process.env.DQ_RESULTS_TABLE = "dq.checks;DROP";
+    vi.resetModules();
+    const { _setDriverForTest } = await import("../src/clients/dq-store.js");
+    _setDriverForTest({ query: async () => [] });
+    const { dqListChecks } = await import("../src/tools/quality-results.js");
+    await expect(dqListChecks({ sinceHours: 24, limit: 10 })).rejects.toThrow(/Invalid DQ table identifier/);
+  });
+
+  it("rejects unsafe DQ_COL_* overrides before query execution", async () => {
+    process.env.DQ_RESULTS_TABLE = "example-project.data_ops.quality_checks";
+    process.env.DQ_COL_STATUS = "status;DROP";
+    vi.resetModules();
+    const { _setDriverForTest } = await import("../src/clients/dq-store.js");
+    _setDriverForTest({ query: async () => [] });
+    const { dqListChecks } = await import("../src/tools/quality-results.js");
+    await expect(dqListChecks({ sinceHours: 24, limit: 10 })).rejects.toThrow(/DQ_COL_STATUS/);
+    delete process.env.DQ_COL_STATUS;
+  });
 });
 
 describe("dq-store driver injection (us-all schema, postgres)", () => {

@@ -1,10 +1,14 @@
 import { z } from "zod";
+import { extractFieldsDescription } from "@us-all/mcp-toolkit";
 import { loadManifest } from "../clients/dbt-artifacts.js";
+
+const ef = z.string().optional().describe(extractFieldsDescription);
 
 export const dbtListMacrosSchema = z.object({
   package: z.string().optional().describe("Filter by package name"),
   search: z.string().optional().describe("Substring match against macro name"),
   limit: z.coerce.number().int().min(1).max(2000).default(500),
+  extractFields: ef,
 });
 
 export async function dbtListMacros(args: z.infer<typeof dbtListMacrosSchema>): Promise<unknown> {
@@ -30,6 +34,7 @@ export async function dbtListMacros(args: z.infer<typeof dbtListMacrosSchema>): 
 export const dbtGetMacroSchema = z.object({
   uniqueId: z.string().optional().describe("dbt unique_id (e.g. 'macro.proj.my_macro')"),
   name: z.string().optional().describe("Macro name (resolved if uniqueId not provided)"),
+  extractFields: ef,
 });
 
 export async function dbtGetMacro(args: z.infer<typeof dbtGetMacroSchema>): Promise<unknown> {

@@ -95,23 +95,36 @@ async function getDriver(): Promise<BackendDriver> {
 }
 
 export async function dqQuery(sql: string, params: unknown[] = []): Promise<DqQueryResult> {
-  if (!config.dq.resultsTable) {
-    throw new ConfigMissingError("DQ_RESULTS_TABLE", "Quality category tools");
-  }
   const driver = await getDriver();
   const rows = await driver.query(sql, params);
   return { rows, rowCount: rows.length, backend: config.dq.backend, query: sql };
 }
 
-export function qualifyTable(envValue: string): string {
-  // BigQuery requires backticks around qualified names; Postgres tolerates them not being there.
-  if (config.dq.backend === "bigquery") {
-    return "`" + envValue.replace(/`/g, "") + "`";
+function assertSafeTableName(envValue: string): void {
+  const parts = envValue.split(".");
+  const bqPart = /^[A-Za-z0-9_-]+$/;
+  const pgPart = /^[A-Za-z_][A-Za-z0-9_$]*$/;
+  const valid =
+    config.dq.backend === "bigquery"
+      ? parts.length >= 1 && parts.length <= 3 && parts.every((part) => bqPart.test(part))
+      : parts.length >= 1 && parts.length <= 3 && parts.every((part) => pgPart.test(part));
+  if (!valid) {
+    throw new DqStoreError(`Invalid DQ table identifier for ${config.dq.backend}: ${envValue}`, null);
   }
-  return envValue;
+}
+
+export function qualifyTable(envValue: string): string {
+  assertSafeTableName(envValue);
+  if (config.dq.backend === "bigquery") {
+    return "`" + envValue + "`";
+  }
+  return envValue.split(".").map((part) => `"${part.replace(/"/g, "\"\"")}"`).join(".");
 }
 
 export function resultsTable(): string {
+  if (!config.dq.resultsTable) {
+    throw new ConfigMissingError("DQ_RESULTS_TABLE", "Quality category tools");
+  }
   return qualifyTable(config.dq.resultsTable);
 }
 

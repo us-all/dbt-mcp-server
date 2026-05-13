@@ -1,7 +1,10 @@
 import { z } from "zod";
+import { extractFieldsDescription } from "@us-all/mcp-toolkit";
 import { dqQuery, resultsTable } from "../clients/dq-store.js";
 import { getDqColumns, getDqFlavor, tableTimeWindowSql } from "../clients/dq-schema.js";
 import { config } from "../config.js";
+
+const ef = z.string().optional().describe(extractFieldsDescription);
 
 export const dqListChecksSchema = z.object({
   dataset: z.string().optional().describe("Filter by dataset / source"),
@@ -9,6 +12,7 @@ export const dqListChecksSchema = z.object({
   type: z.string().optional().describe("Filter by check type (dbt_test | freshness | anomaly | reconciliation | ...)"),
   sinceHours: z.coerce.number().int().min(1).max(720).default(24),
   limit: z.coerce.number().int().min(1).max(500).default(100),
+  extractFields: ef,
 });
 
 export async function dqListChecks(args: z.infer<typeof dqListChecksSchema>): Promise<unknown> {
@@ -59,6 +63,7 @@ export const dqGetCheckHistorySchema = z.object({
   checkName: z.string().describe("Generic schema: exact check_name. us-all schema: 'check_type:target_name' (concat)"),
   days: z.coerce.number().int().min(1).max(365).default(30),
   limit: z.coerce.number().int().min(1).max(2000).default(500),
+  extractFields: ef,
 });
 
 export async function dqGetCheckHistory(
@@ -103,6 +108,7 @@ export async function dqGetCheckHistory(
 export const dqFailedChecksByDatasetSchema = z.object({
   sinceHours: z.coerce.number().int().min(1).max(720).default(24),
   topN: z.coerce.number().int().min(1).max(100).default(20),
+  extractFields: ef,
 });
 
 export async function dqFailedChecksByDataset(

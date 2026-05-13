@@ -1,10 +1,14 @@
 import { z } from "zod";
+import { extractFieldsDescription } from "@us-all/mcp-toolkit";
 import { loadManifest, loadSources } from "../clients/dbt-artifacts.js";
+
+const ef = z.string().optional().describe(extractFieldsDescription);
 
 export const dbtListSourcesSchema = z.object({
   sourceName: z.string().optional().describe("Filter by source group name"),
   search: z.string().optional().describe("Substring match against source table name"),
   limit: z.coerce.number().int().min(1).max(2000).default(500),
+  extractFields: ef,
 });
 
 export async function dbtListSources(args: z.infer<typeof dbtListSourcesSchema>): Promise<unknown> {
@@ -36,6 +40,7 @@ export const dbtGetSourceSchema = z.object({
   uniqueId: z.string().optional().describe("dbt unique_id (e.g. 'source.proj.raw.users')"),
   sourceName: z.string().optional().describe("Source group name (with tableName)"),
   tableName: z.string().optional().describe("Source table name (with sourceName)"),
+  extractFields: ef,
 });
 
 export async function dbtGetSource(args: z.infer<typeof dbtGetSourceSchema>): Promise<unknown> {
@@ -95,6 +100,7 @@ export const dbtListExposuresSchema = z.object({
   exposureType: z.string().optional().describe("Filter by type (dashboard | application | ml | analysis | notebook)"),
   search: z.string().optional().describe("Substring match against exposure name"),
   limit: z.coerce.number().int().min(1).max(1000).default(200),
+  extractFields: ef,
 });
 
 export async function dbtListExposures(args: z.infer<typeof dbtListExposuresSchema>): Promise<unknown> {
