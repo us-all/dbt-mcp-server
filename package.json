@@ -1,6 +1,6 @@
 {
   "name": "@us-all/dbt-mcp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "mcpName": "io.github.us-all/dbt",
   "description": "dbt MCP server — manifest, run results, sources, freshness, coverage, and DQ result tables in one stdio MCP",
   "type": "module",

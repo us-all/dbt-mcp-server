@@ -8,6 +8,7 @@ export const SUPPORTED_MANIFEST_SCHEMA_PREFIXES = [
   "https://schemas.getdbt.com/dbt/manifest/v11",
   "https://schemas.getdbt.com/dbt/manifest/v12",
   "https://schemas.getdbt.com/dbt/manifest/v13",
+  "https://schemas.getdbt.com/dbt/manifest/v14",
 ];
 
 export interface DbtNode {

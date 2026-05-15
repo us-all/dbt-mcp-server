@@ -57,7 +57,7 @@ export async function dbtListModels(args: z.infer<typeof dbtListModelsSchema>): 
     models: out,
     caveats: manifestSchemaSupported(manifest)
       ? []
-      : [`manifest schema_version '${manifest.metadata.dbt_schema_version}' is outside tested versions (v11–v13) — fields may shift`],
+      : [`manifest schema_version '${manifest.metadata.dbt_schema_version}' is outside tested versions (v11–v14) — fields may shift`],
   };
 }
 

@@ -6,7 +6,7 @@
 
 `@us-all/dbt-mcp` — dbt artifacts(`manifest.json`/`run_results.json`/`sources.json`/`catalog.json`) + 사용자 DQ 결과 테이블(BQ/PG)을 노출하는 stdio MCP. **27 도구 (21 primitive + 5 aggregations + 1 meta) + 4 Prompts**. 전부 read-only.
 
-- **타겟 dbt**: 1.7+ (manifest schema v11~v13 검증)
+- **타겟 dbt**: 1.7+ (manifest schema v11~v14 검증)
 - **DQ 백엔드**: BigQuery 기본 + Postgres 옵션, 둘 다 lazy peer import
 - **Airflow는 별도 서버**: [`@us-all/airflow-mcp`](https://github.com/us-all/airflow-mcp-server)
 - **표준**: [@us-all MCP Standard](https://github.com/us-all/mcp-toolkit/blob/main/STANDARD.md) 준수
