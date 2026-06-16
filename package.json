@@ -1,6 +1,6 @@
 {
   "name": "@us-all/dbt-mcp",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "mcpName": "io.github.us-all/dbt",
   "description": "dbt MCP server — manifest, run results, sources, freshness, coverage, and DQ result tables in one stdio MCP",
   "type": "module",
@@ -58,7 +58,7 @@
   "packageManager": "pnpm@10.30.2",
   "pnpm": {
     "overrides": {
-      "hono": "^4.12.18",
+      "hono": "^4.12.21",
       "fast-uri": "^3.1.2",
       "ip-address": "^10.1.1"
     }
