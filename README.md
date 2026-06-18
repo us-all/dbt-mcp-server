@@ -196,7 +196,7 @@ Untiered rows (no manifest `meta.tier`) and unparseable rows always appear in `c
 
 ## Tested-against schemas
 
-- dbt manifest schema v11 / v12 / v13 (others usually parse but a `caveats` line will flag them)
+- dbt manifest schema v11 / v12 — the current top version. dbt 1.7 emits v11; dbt 1.8 through 1.12 all emit v12 (the schema evolves additively in-place). Newer/unknown versions still parse, but a `caveats` line will flag them.
 
 ## Companion server
 

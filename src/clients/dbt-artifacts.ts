@@ -2,13 +2,15 @@ import { existsSync, readFileSync, statSync, readdirSync } from "node:fs";
 import { join, basename } from "node:path";
 import { config } from "../config.js";
 
-// dbt manifest.json schema_version we explicitly target. Other minor versions
-// usually parse cleanly but we surface a caveat if it differs.
+// dbt manifest.json schema versions we have actually tested against.
+// As of 2026-06, schemas.getdbt.com tops out at v12 — there is no v13/v14/v15.
+// dbt 1.7 emits v11; dbt 1.8 through 1.12 all emit v12 (the schema evolves
+// additively in-place rather than bumping the major version per release).
+// We parse forward-tolerantly: unknown/newer versions still parse, but the
+// reader surfaces a caveat (fields may have shifted) — see manifestSchemaSupported.
 export const SUPPORTED_MANIFEST_SCHEMA_PREFIXES = [
   "https://schemas.getdbt.com/dbt/manifest/v11",
   "https://schemas.getdbt.com/dbt/manifest/v12",
-  "https://schemas.getdbt.com/dbt/manifest/v13",
-  "https://schemas.getdbt.com/dbt/manifest/v14",
 ];
 
 export interface DbtNode {

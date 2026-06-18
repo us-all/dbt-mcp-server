@@ -67,4 +67,32 @@ describe("dbt-models", () => {
     expect(r.columnsWithTests).toBe(2);
     expect(r.tableLevelTests).toContain("row_count_check_users_dim");
   });
+
+  it("dbt-list-models emits no schema-version caveat on the tested v12 fixture", async () => {
+    const { dbtListModels } = await import("../src/tools/dbt-models.js");
+    const r = (await dbtListModels({ limit: 200 })) as { caveats: string[] };
+    expect(r.caveats.some((c) => c.includes("schema_version"))).toBe(false);
+  });
+});
+
+describe("manifest schema version support (forward-tolerant)", () => {
+  const mk = (v: string) =>
+    ({ metadata: { dbt_schema_version: v } }) as unknown as Parameters<
+      typeof import("../src/clients/dbt-artifacts.js").manifestSchemaSupported
+    >[0];
+
+  it("accepts the real, tested versions (v11, v12) — v12 is the current top", async () => {
+    const { manifestSchemaSupported } = await import("../src/clients/dbt-artifacts.js");
+    expect(manifestSchemaSupported(mk("https://schemas.getdbt.com/dbt/manifest/v11.json"))).toBe(true);
+    expect(manifestSchemaSupported(mk("https://schemas.getdbt.com/dbt/manifest/v12.json"))).toBe(true);
+  });
+
+  it("flags unknown/newer versions (v13+ do not exist yet) so callers get a caveat", async () => {
+    const { manifestSchemaSupported } = await import("../src/clients/dbt-artifacts.js");
+    // v13/v14/v15 are not published by dbt as of 2026-06 — treat as untested.
+    expect(manifestSchemaSupported(mk("https://schemas.getdbt.com/dbt/manifest/v13.json"))).toBe(false);
+    expect(manifestSchemaSupported(mk("https://schemas.getdbt.com/dbt/manifest/v15.json"))).toBe(false);
+    expect(manifestSchemaSupported(mk("https://schemas.getdbt.com/dbt/manifest/v10.json"))).toBe(false);
+    expect(manifestSchemaSupported(mk(""))).toBe(false);
+  });
 });
