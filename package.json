@@ -1,6 +1,6 @@
 {
   "name": "@us-all/dbt-mcp",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "mcpName": "io.github.us-all/dbt",
   "description": "dbt MCP server — manifest, run results, sources, freshness, coverage, and DQ result tables in one stdio MCP",
   "type": "module",
@@ -27,7 +27,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@us-all/mcp-toolkit": "^1.2.3",
+    "@us-all/mcp-toolkit": "^1.3.0",
     "dotenv": "^17.4.2",
     "yaml": "^2.8.4",
     "zod": "^4.4.2"
